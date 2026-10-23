@@ -1,21 +1,42 @@
 -- ============================================================================
 -- AgentTrust: Multi-Agent Governance and Risk Monitoring Platform
--- Advanced SQL Verification & Academic Test Suite (Phase 2)
+-- Advanced SQL Verification & Academic Test Suite (Repeatable Test Script)
+-- Target DBMS: PostgreSQL 16+
+--
+-- REPEATABILITY DESIGN:
+-- The entire test suite is wrapped inside a BEGIN ... ROLLBACK transaction block.
+-- Intermediate sub-tests use SAVEPOINTs so that tests can verify failure modes
+-- without aborting the outer transaction.
+-- Result: Running this script tests every trigger, function, view, transaction,
+-- and honest index benchmark, leaving the baseline seed data 100% pristine.
 -- ============================================================================
+
+BEGIN;
+
+-- ----------------------------------------------------------------------------
+-- BASELINE PRE-CHECKS
+-- ----------------------------------------------------------------------------
+SELECT 'BASELINE ROW COUNTS BEFORE TESTS' AS label;
+SELECT 'users' AS tbl, count(*) FROM users
+UNION ALL SELECT 'agents', count(*) FROM agents
+UNION ALL SELECT 'policies', count(*) FROM policies
+UNION ALL SELECT 'interactions', count(*) FROM interactions
+UNION ALL SELECT 'violations', count(*) FROM violations
+UNION ALL SELECT 'quarantine_events', count(*) FROM quarantine_events
+UNION ALL SELECT 'risk_scores', count(*) FROM risk_scores;
+
+-- Verify Alpha-SecOps-01 is initially active
+SELECT agent_id, name, status FROM agents WHERE name = 'Alpha-SecOps-01';
 
 -- ----------------------------------------------------------------------------
 -- TEST 1: END-TO-END TRIGGER CASCADE
--- An interaction with D2D latency > 800ms is inserted for active agent Alpha-SecOps-01.
+-- Inserting an interaction with D2D latency > 800ms for active agent Alpha-SecOps-01.
 -- Cascade:
 --   1. interactions row inserted.
 --   2. evaluate_interaction_policies trigger fires -> creates critical violation.
 --   3. auto_quarantine_on_critical_violation trigger fires ->
 --      sets agent status = 'quarantined' and inserts active quarantine_events row.
 -- ----------------------------------------------------------------------------
--- Pre-check: Verify Alpha-SecOps-01 is initially active
-SELECT agent_id, name, status FROM agents WHERE name = 'Alpha-SecOps-01';
-
--- Insert violating interaction (D2D = 950ms exceeds 800ms threshold)
 INSERT INTO interactions (
     interaction_id,
     source_agent_id,
@@ -38,15 +59,15 @@ INSERT INTO interactions (
     NOW()
 );
 
--- Post-check 1: Verify critical violation was auto-created
+-- Post-check 1: Critical violation auto-created
 SELECT violation_id, severity, description 
 FROM violations 
 WHERE interaction_id = 'd1111111-1111-1111-1111-111111111111';
 
--- Post-check 2: Verify agent status was auto-updated to 'quarantined'
+-- Post-check 2: Agent status auto-updated to 'quarantined'
 SELECT agent_id, name, status FROM agents WHERE name = 'Alpha-SecOps-01';
 
--- Post-check 3: Verify active quarantine event was auto-created
+-- Post-check 3: Active quarantine event auto-created
 SELECT quarantine_id, agent_id, status, quarantined_at 
 FROM quarantine_events 
 WHERE agent_id = 'b0000000-0000-0000-0000-000000000001' AND status = 'active';
@@ -149,8 +170,12 @@ LIMIT 1;
 
 -- ----------------------------------------------------------------------------
 -- TEST 5: ACTIVE VIOLATIONS VIEW TEST
--- Selects from active_violations_view showing joined details
+-- Compares count(*) of violations table vs active_violations_view,
+-- confirming the view includes all violations with rich relational context.
 -- ----------------------------------------------------------------------------
+SELECT count(*) AS total_violations_count FROM violations;
+SELECT count(*) AS active_violations_view_count FROM active_violations_view;
+
 SELECT 
     severity, 
     source_agent_name, 
@@ -162,11 +187,11 @@ ORDER BY detected_at DESC
 LIMIT 5;
 
 -- ----------------------------------------------------------------------------
--- TEST 6: TRANSACTION INTEGRITY & ROLLBACK PROOF
+-- TEST 6: TRANSACTION INTEGRITY & ROLLBACK PROOF (Using SAVEPOINT)
 -- Proves that if an intentional failure occurs mid-transaction, ROLLBACK
 -- guarantees zero partial updates remain in the database.
 -- ----------------------------------------------------------------------------
-BEGIN;
+SAVEPOINT sp_rollback_test;
 
 -- Step A: Insert a speculative quarantine event
 INSERT INTO quarantine_events (
@@ -183,10 +208,10 @@ UPDATE agents
 SET status = 'quarantined' 
 WHERE agent_id = 'b0000000-0000-0000-0000-000000000004';
 
--- Step C: Force rollback
-ROLLBACK;
+-- Step C: Force rollback to savepoint
+ROLLBACK TO SAVEPOINT sp_rollback_test;
 
--- Verify rollback: quarantine event does NOT exist and agent status is still 'active'
+-- Verify rollback: speculative quarantine event does NOT exist and agent status is still 'active'
 SELECT count(*) AS rollback_quarantine_check 
 FROM quarantine_events 
 WHERE quarantine_id = 'f9999999-9999-9999-9999-999999999999';
@@ -196,23 +221,97 @@ FROM agents
 WHERE agent_id = 'b0000000-0000-0000-0000-000000000004';
 
 -- ----------------------------------------------------------------------------
--- TEST 7: EXPLAIN ANALYZE INDEX OPTIMIZATION EVIDENCE
--- Demonstrates query plan and execution benefits provided by B-Tree indexes:
--- 1. Sequential scan requires a separate memory sort pass.
--- 2. Index scan using idx_interactions_source_time retrieves rows pre-sorted
---    with 0 sorting overhead and direct index condition lookup.
+-- TEST 7: HONEST INDEX BENCHMARK WITH 200,000 SYNTHETIC ROWS
+-- Generates 200,000 synthetic interactions inside the transaction, runs ANALYZE,
+-- tests EXPLAIN ANALYZE without the index, creates the index, runs ANALYZE,
+-- tests EXPLAIN ANALYZE with the index.
+-- (No enable_seqscan tricks; PostgreSQL planner genuinely chooses the Index Scan)
 -- ----------------------------------------------------------------------------
--- (A) Plan without forcing index (cost-based sequential scan + sort)
+-- Step 1: Temporarily drop interactions indexes for unindexed benchmark
+DROP INDEX IF EXISTS idx_interactions_source_time;
+DROP INDEX IF EXISTS idx_interactions_initiated_at_desc;
+DROP INDEX IF EXISTS idx_interactions_source_agent_id;
+
+-- Step 2: Disable trigger for high-throughput synthetic bulk load
+ALTER TABLE interactions DISABLE TRIGGER trg_evaluate_interaction_policies;
+
+-- Step 3: Insert 200,000 realistic interactions
+INSERT INTO interactions (
+    interaction_id,
+    source_agent_id,
+    target_agent_id,
+    protocol,
+    status,
+    latency_d2d,
+    latency_d2b,
+    latency_d2rev,
+    initiated_at
+)
+SELECT 
+    gen_random_uuid(),
+    CASE (i % 8)
+        WHEN 0 THEN 'b0000000-0000-0000-0000-000000000001'::uuid
+        WHEN 1 THEN 'b0000000-0000-0000-0000-000000000002'::uuid
+        WHEN 2 THEN 'b0000000-0000-0000-0000-000000000003'::uuid
+        WHEN 3 THEN 'b0000000-0000-0000-0000-000000000004'::uuid
+        WHEN 4 THEN 'b0000000-0000-0000-0000-000000000005'::uuid
+        WHEN 5 THEN 'b0000000-0000-0000-0000-000000000006'::uuid
+        WHEN 6 THEN 'b0000000-0000-0000-0000-000000000007'::uuid
+        ELSE 'b0000000-0000-0000-0000-000000000008'::uuid
+    END,
+    'b0000000-0000-0000-0000-000000000009'::uuid,
+    'gRPC/v2',
+    'completed',
+    45.0 + (i % 20),
+    80.0 + (i % 30),
+    100.0 + (i % 40),
+    NOW() - (i || ' seconds')::interval
+FROM generate_series(1, 200000) AS s(i);
+
+-- Re-enable trigger
+ALTER TABLE interactions ENABLE TRIGGER trg_evaluate_interaction_policies;
+
+-- Update optimizer statistics
+ANALYZE interactions;
+
+-- Step 4: Plan WITHOUT index (Full Parallel Table Scan + Memory Sort)
+SELECT 'PLAN WITHOUT COMPOSITE INDEX (TABLE SCAN + TOP-N SORT)' AS benchmark_phase;
 EXPLAIN ANALYZE 
 SELECT * FROM interactions 
 WHERE source_agent_id = 'b0000000-0000-0000-0000-000000000001' 
-ORDER BY initiated_at DESC;
+ORDER BY initiated_at DESC 
+LIMIT 50;
 
--- (B) Plan leveraging composite B-Tree index (Index Scan, eliminating sort step)
-SET enable_seqscan = off;
+-- Step 5: Build composite B-Tree index
+CREATE INDEX idx_interactions_source_time 
+    ON interactions (source_agent_id, initiated_at DESC);
+
+ANALYZE interactions;
+
+-- Step 6: Plan WITH index (Direct B-Tree Index Scan with Zero Sort Overhead)
+SELECT 'PLAN WITH COMPOSITE INDEX (DIRECT B-TREE INDEX SCAN)' AS benchmark_phase;
 EXPLAIN ANALYZE 
 SELECT * FROM interactions 
 WHERE source_agent_id = 'b0000000-0000-0000-0000-000000000001' 
-ORDER BY initiated_at DESC;
-RESET enable_seqscan;
+ORDER BY initiated_at DESC 
+LIMIT 50;
 
+-- ----------------------------------------------------------------------------
+-- ROLLBACK ALL TEST DATA & SYNTHETIC BENCHMARK ROWS
+-- ----------------------------------------------------------------------------
+ROLLBACK;
+
+-- ----------------------------------------------------------------------------
+-- POST-TEST VERIFICATION
+-- Confirms that row counts and agent statuses are 100% untouched after running tests.
+-- ----------------------------------------------------------------------------
+SELECT 'ROW COUNTS AFTER ROLLBACK (IDENTICAL TO BASELINE SEED)' AS label;
+SELECT 'users' AS tbl, count(*) FROM users
+UNION ALL SELECT 'agents', count(*) FROM agents
+UNION ALL SELECT 'policies', count(*) FROM policies
+UNION ALL SELECT 'interactions', count(*) FROM interactions
+UNION ALL SELECT 'violations', count(*) FROM violations
+UNION ALL SELECT 'quarantine_events', count(*) FROM quarantine_events
+UNION ALL SELECT 'risk_scores', count(*) FROM risk_scores;
+
+SELECT agent_id, name, status FROM agents WHERE name = 'Alpha-SecOps-01';

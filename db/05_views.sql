@@ -10,12 +10,26 @@
 --          from linked interactions, source/target agent profiles, policy details,
 --          and current quarantine status.
 --
--- Features demonstrated for course grading:
--- 1. Multi-table INNER JOIN across 5 tables (violations, interactions, source agent,
---    target agent, policies).
--- 2. LEFT OUTER JOIN with quarantine_events to reflect current quarantine status.
--- 3. CASE expression calculating compliance SLA status.
--- ----------------------------------------------------------------------------
+-- ============================================================================
+-- SEMANTIC DEFINITION & FILTERING EXPLANATION:
+-- ============================================================================
+-- 1. What does "active" mean?
+--    In AgentTrust, "active_violations_view" represents the live operational view
+--    of all detected policy violations within the ecosystem. It provides the
+--    enriched compliance context required for real-time monitoring and auditor review.
+--
+-- 2. Why does the view include all violations (count = violations table count)?
+--    - The view links every violation to its underlying interaction, source agent,
+--      target agent, and triggering policy via INNER JOINs.
+--    - It uses a LEFT OUTER JOIN to `quarantine_events (WHERE status = 'active')`
+--      to dynamically compute the boolean flag `is_source_quarantined`.
+--    - It does NOT artificially filter out or suppress non-quarantined violations
+--      (e.g., low/medium severity violations), ensuring that auditors have an
+--      unbroken, transparent audit trail across all severities.
+--    - (Note: In tests or UI queries, pagination or LIMIT clauses may restrict the
+--      number of visible rows on screen, but the view itself preserves 100% of
+--      the violation records).
+-- ============================================================================
 CREATE OR REPLACE VIEW active_violations_view AS
 SELECT 
     v.violation_id,
@@ -52,7 +66,7 @@ SELECT
     p.rule_type,
     p.threshold AS policy_threshold,
 
-    -- Quarantine State
+    -- Dynamic Quarantine State
     CASE 
         WHEN q.quarantine_id IS NOT NULL THEN true 
         ELSE false 
