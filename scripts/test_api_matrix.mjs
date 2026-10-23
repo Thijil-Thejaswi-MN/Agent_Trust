@@ -301,6 +301,57 @@ async function runTests() {
   }
   assert("Consecutive failed logins per username trigger HTTP 429 (no spoofed headers)", rateLimited);
 
+  // ----------------------------------------------------------------------------
+  // SECTION 9: Database Baseline Restoration
+  // ----------------------------------------------------------------------------
+  console.log("\n--- SECTION 9: Restoring Clean Seed Baseline ---");
+  try {
+    process.loadEnvFile?.(".env.local");
+  } catch {}
+
+  const pg = await import("pg");
+  const pool = new pg.default.Pool({
+    host: process.env.POSTGRES_HOST || "localhost",
+    port: parseInt(process.env.POSTGRES_PORT || "5433", 10),
+    database: process.env.POSTGRES_DB || "agenttrust",
+    user: process.env.POSTGRES_USER || "agenttrust_admin",
+    password: process.env.POSTGRES_PASSWORD,
+  });
+
+  // 1. Delete extra quarantine events, keep only seeded Theta quarantine
+  await pool.query("DELETE FROM quarantine_events WHERE quarantine_id <> 'f0000000-0000-0000-0000-000000000001';");
+  await pool.query("UPDATE quarantine_events SET status = 'active', released_at = NULL WHERE quarantine_id = 'f0000000-0000-0000-0000-000000000001';");
+
+  // 2. Delete extra risk scores, keep only 10 seeded baseline scores
+  await pool.query("DELETE FROM risk_scores WHERE score_id::text NOT LIKE '10000000-0000-0000-0000-%';");
+
+  // 3. Reset agent statuses to exact seed baseline
+  await pool.query("UPDATE agents SET status = 'quarantined' WHERE agent_id = 'b0000000-0000-0000-0000-000000000008';");
+  await pool.query("UPDATE agents SET status = 'offline' WHERE agent_id = 'b0000000-0000-0000-0000-000000000010';");
+  await pool.query("UPDATE agents SET status = 'active' WHERE agent_id NOT IN ('b0000000-0000-0000-0000-000000000008', 'b0000000-0000-0000-0000-000000000010');");
+
+  // 4. Delete simulated interactions & cascade violations
+  await pool.query("DELETE FROM interactions WHERE interaction_id::text NOT LIKE 'd0000000-0000-0000-0000-%';");
+
+  // Query counts to verify exact restoration
+  const agCheck = await pool.query("SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE status = 'active') AS active, COUNT(*) FILTER (WHERE status = 'quarantined') AS quarantined FROM agents;");
+  const qCheck = await pool.query("SELECT COUNT(*) AS count FROM quarantine_events;");
+  const rCheck = await pool.query("SELECT COUNT(*) AS count FROM risk_scores;");
+  const iCheck = await pool.query("SELECT COUNT(*) AS count FROM interactions;");
+
+  await pool.end();
+
+  const restored = (
+    parseInt(agCheck.rows[0].total) === 10 &&
+    parseInt(agCheck.rows[0].active) === 8 &&
+    parseInt(agCheck.rows[0].quarantined) === 1 &&
+    parseInt(qCheck.rows[0].count) === 1 &&
+    parseInt(rCheck.rows[0].count) === 10 &&
+    parseInt(iCheck.rows[0].count) === 45
+  );
+
+  assert("Seed baseline restored: 10 agents (8 active, 1 quarantined), 1 quarantine event, 10 risk scores, 45 interactions", restored);
+
   console.log("\n================================================================================");
   console.log(`TEST SUMMARY: ${passes} Passed, ${fails} Failed`);
   console.log("================================================================================");
