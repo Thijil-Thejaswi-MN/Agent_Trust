@@ -6,7 +6,11 @@
 
 import { MongoClient, Db } from "mongodb";
 
-const uri = process.env.MONGODB_URI || "mongodb://agenttrust_mongo:your_secure_mongo_password_here@localhost:27017/agenttrust?authSource=admin";
+const uri = process.env.MONGODB_URI;
+if (!uri) {
+  throw new Error("Missing required MONGODB_URI environment variable in .env.local");
+}
+
 const dbName = process.env.MONGO_DB || "agenttrust";
 
 interface GlobalMongo {

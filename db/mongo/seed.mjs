@@ -2,24 +2,33 @@
 // AgentTrust: MongoDB Seed Script
 // Populates interaction_logs collection with 45 polymorphic documents
 // exactly matching the 45 PostgreSQL interaction_ids from db/02_seed.sql.
+// Configuration strictly read from environment variables (.env.local)
 // ============================================================================
 
 import { MongoClient } from "mongodb";
 
-const uri = process.env.MONGODB_URI || "mongodb://agenttrust_mongo:agenttrust_mongo_password_2026@localhost:27017/agenttrust?authSource=admin";
+// Automatically load .env.local if present in Node 20+
+try {
+  process.loadEnvFile?.(".env.local");
+} catch {}
+
+const uri = process.env.MONGODB_URI;
+if (!uri) {
+  throw new Error("Missing required MONGODB_URI environment variable.");
+}
 const dbName = process.env.MONGO_DB || "agenttrust";
 
 // Mapping of the 45 SQL interactions to their source agent IDs
 const interactionMetadata = [
   { id: 1, agentId: "b0000000-0000-0000-0000-000000000001", type: "security_audit" },
   { id: 2, agentId: "b0000000-0000-0000-0000-000000000002", type: "financial_transfer" },
-  { id: 3, agentId: "b0000000-0000-0000-0000-000000000008", type: "threat_scanner_anomaly" }, // Critical violation
+  { id: 3, agentId: "b0000000-0000-0000-0000-000000000008", type: "threat_scanner_anomaly" }, // Critical violation (Theta)
   { id: 4, agentId: "b0000000-0000-0000-0000-000000000003", type: "healthcare_record" },
   { id: 5, agentId: "b0000000-0000-0000-0000-000000000004", type: "logistics_routing" },
   { id: 6, agentId: "b0000000-0000-0000-0000-000000000005", type: "nlp_summarization" },
   { id: 7, agentId: "b0000000-0000-0000-0000-000000000006", type: "code_review" },
   { id: 8, agentId: "b0000000-0000-0000-0000-000000000007", type: "payment_settlement" },
-  { id: 9, agentId: "b0000000-0000-0000-0000-000000000008", type: "legacy_protocol_breach" }, // Critical violation
+  { id: 9, agentId: "b0000000-0000-0000-0000-000000000008", type: "legacy_protocol_breach" }, // Critical violation (Theta)
   { id: 10, agentId: "b0000000-0000-0000-0000-000000000009", type: "customer_support_query" },
   { id: 11, agentId: "b0000000-0000-0000-0000-000000000001", type: "security_audit" },
   { id: 12, agentId: "b0000000-0000-0000-0000-000000000002", type: "financial_transfer" },
@@ -186,6 +195,7 @@ async function seedMongo() {
     const docs = interactionMetadata.map((meta) => {
       const paddedId = String(meta.id).padStart(12, "0");
       const interactionUuid = `d0000000-0000-0000-0000-${paddedId}`;
+      // Timestamps relative to NOW() (within recent 9 days)
       const baseTime = new Date(Date.now() - (46 - meta.id) * 3600 * 1000);
 
       return {

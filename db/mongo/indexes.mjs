@@ -1,11 +1,20 @@
 // ============================================================================
 // AgentTrust: MongoDB Indexes Configuration
 // Creates single and compound indexes on the interaction_logs collection
+// Configuration strictly read from environment variables (.env.local)
 // ============================================================================
 
 import { MongoClient } from "mongodb";
 
-const uri = process.env.MONGODB_URI || "mongodb://agenttrust_mongo:agenttrust_mongo_password_2026@localhost:27017/agenttrust?authSource=admin";
+// Automatically load .env.local if present in Node 20+
+try {
+  process.loadEnvFile?.(".env.local");
+} catch {}
+
+const uri = process.env.MONGODB_URI;
+if (!uri) {
+  throw new Error("Missing required MONGODB_URI environment variable.");
+}
 const dbName = process.env.MONGO_DB || "agenttrust";
 
 async function applyIndexes() {
