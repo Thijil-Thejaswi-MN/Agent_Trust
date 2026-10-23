@@ -6,6 +6,7 @@ import { Navbar } from "@/components/Navbar";
 import { LoginModal } from "@/components/LoginModal";
 import { DashboardView } from "@/components/views/DashboardView";
 import { AgentsView } from "@/components/views/AgentsView";
+import { PoliciesView } from "@/components/views/PoliciesView";
 import { InteractionsView } from "@/components/views/InteractionsView";
 import { ViolationsView } from "@/components/views/ViolationsView";
 import { MongoLogsView } from "@/components/views/MongoLogsView";
@@ -37,6 +38,7 @@ function MainContent() {
       <main>
         {activeTab === "dashboard" && <DashboardView />}
         {activeTab === "agents" && <AgentsView />}
+        {activeTab === "policies" && <PoliciesView />}
         {activeTab === "interactions" && <InteractionsView />}
         {activeTab === "violations" && <ViolationsView />}
         {activeTab === "mongo" && <MongoLogsView />}

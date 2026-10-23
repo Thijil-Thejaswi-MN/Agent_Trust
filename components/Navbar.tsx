@@ -14,6 +14,7 @@ export function Navbar({ activeTab, setActiveTab }: NavbarProps) {
   const tabs = [
     { id: "dashboard", label: "Dashboard" },
     { id: "agents", label: "Agent Registry" },
+    { id: "policies", label: "Governance Policies" },
     { id: "interactions", label: "Interactions & Telemetry" },
     { id: "violations", label: "Violations & Quarantine" },
     { id: "mongo", label: "MongoDB Anomaly Pipeline" },

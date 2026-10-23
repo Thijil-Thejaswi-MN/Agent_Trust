@@ -283,25 +283,23 @@ async function runTests() {
   assert("Top anomalous agent correctly detected as 'Theta-Threat-Scanner' (score: 150)", topAnomaly?.agent_name === "Theta-Threat-Scanner" && topAnomaly?.computed_anomaly_score === 150, `Agent: ${topAnomaly?.agent_name}, Score: ${topAnomaly?.computed_anomaly_score}`);
 
   // ----------------------------------------------------------------------------
-  // SECTION 8: Rate Limiting Defense (Brute Force Protection)
+  // SECTION 8: Rate Limiting Defense (Per-Username Brute Force Protection)
   // ----------------------------------------------------------------------------
   console.log("\n--- SECTION 8: Rate Limiting Defense ---");
   let rateLimited = false;
-  for (let i = 0; i < 12; i++) {
+  // Test per-username throttling without any spoofed X-Forwarded-For header
+  for (let i = 0; i < 7; i++) {
     const rlRes = await fetch(`${BASE_URL}/api/auth/login`, {
       method: "POST",
-      headers: { 
-        "Content-Type": "application/json",
-        "X-Forwarded-For": "203.0.113.199"
-      },
-      body: JSON.stringify({ username: "admin", password: "wrong_password" })
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: "throttled_attacker_target", password: "wrong_password" })
     });
     if (rlRes.status === 429) {
       rateLimited = true;
       break;
     }
   }
-  assert("Consecutive failed logins trigger HTTP 429 Too Many Requests", rateLimited);
+  assert("Consecutive failed logins per username trigger HTTP 429 (no spoofed headers)", rateLimited);
 
   console.log("\n================================================================================");
   console.log(`TEST SUMMARY: ${passes} Passed, ${fails} Failed`);

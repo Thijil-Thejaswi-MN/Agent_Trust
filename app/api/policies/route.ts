@@ -8,6 +8,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { query } from "@/lib/db/pg";
 import { requireRole } from "@/lib/auth";
 
+const ALLOWED_RULE_TYPES = [
+  "latency_d2b",
+  "latency_d2d",
+  "latency_d2rev",
+  "protocol_security",
+  "cert_integrity",
+];
+
 export async function GET(req: NextRequest) {
   const auth = await requireRole(req, ["admin", "auditor"]);
   if (auth.errorResponse) return auth.errorResponse;
@@ -34,7 +42,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  // Admin only
+  // Admin strictly enforced
   const auth = await requireRole(req, ["admin"]);
   if (auth.errorResponse) return auth.errorResponse;
 
@@ -48,10 +56,20 @@ export async function POST(req: NextRequest) {
     }
 
     const { name, rule_type, threshold } = body;
-    const numThreshold = parseFloat(threshold);
-    if (isNaN(numThreshold) || numThreshold < 0) {
+
+    if (!ALLOWED_RULE_TYPES.includes(rule_type)) {
       return NextResponse.json(
-        { error: "Invalid threshold: must be a positive numeric value" },
+        {
+          error: `Invalid rule_type '${rule_type}'. Allowed types: ${ALLOWED_RULE_TYPES.join(", ")}`,
+        },
+        { status: 400 }
+      );
+    }
+
+    const numThreshold = parseFloat(threshold);
+    if (isNaN(numThreshold) || numThreshold <= 0) {
+      return NextResponse.json(
+        { error: "Invalid threshold: must be a positive numeric value greater than zero" },
         { status: 400 }
       );
     }
@@ -61,12 +79,12 @@ export async function POST(req: NextRequest) {
       VALUES ($1, $2, $3, $4)
       RETURNING *;
     `;
-    const result = await query(sql, [name, rule_type, numThreshold, auth.user.userId]);
+    const result = await query(sql, [name.trim(), rule_type, numThreshold, auth.user.userId]);
     return NextResponse.json({ success: true, policy: result.rows[0] }, { status: 201 });
   } catch (err: any) {
     if (err.code === "23505") {
       return NextResponse.json(
-        { error: "Conflict: A policy with this name already exists." },
+        { error: "Conflict: A policy with this name already exists in the governance catalog." },
         { status: 409 }
       );
     }
