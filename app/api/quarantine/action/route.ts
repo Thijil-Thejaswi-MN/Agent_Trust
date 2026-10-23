@@ -5,11 +5,14 @@
 // 1. Transactional isolation (BEGIN / COMMIT / ROLLBACK)
 // 2. Pessimistic row locking (SELECT ... FOR UPDATE) to prevent race conditions
 // 3. Strict RBAC (admin only)
+// 4. Input sanitization (UUID regex check)
 // ============================================================================
 
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth";
 import { getClient } from "@/lib/db/pg";
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 interface QuarantineActionBody {
   agent_id: string;
@@ -34,6 +37,13 @@ export async function POST(req: NextRequest) {
   if (!agent_id || !action || !["quarantine", "release"].includes(action)) {
     return NextResponse.json(
       { error: "Missing required fields: agent_id (UUID) and action ('quarantine' | 'release')" },
+      { status: 400 }
+    );
+  }
+
+  if (!UUID_REGEX.test(agent_id)) {
+    return NextResponse.json(
+      { error: "Invalid agent_id: Must be a valid UUID format" },
       { status: 400 }
     );
   }

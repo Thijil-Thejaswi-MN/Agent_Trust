@@ -1,25 +1,54 @@
+"use client";
+
+import React, { useState } from "react";
+import { AuthProvider, useAuth } from "@/components/AuthContext";
+import { Navbar } from "@/components/Navbar";
+import { LoginModal } from "@/components/LoginModal";
+import { DashboardView } from "@/components/views/DashboardView";
+import { AgentsView } from "@/components/views/AgentsView";
+import { InteractionsView } from "@/components/views/InteractionsView";
+import { ViolationsView } from "@/components/views/ViolationsView";
+import { MongoLogsView } from "@/components/views/MongoLogsView";
+
+function MainContent() {
+  const { user, loading } = useAuth();
+  const [activeTab, setActiveTab] = useState("dashboard");
+
+  if (loading) {
+    return (
+      <div style={{ display: "flex", height: "100vh", alignItems: "center", justifyContent: "center", color: "var(--accent-cyan)" }}>
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: "2rem", marginBottom: "0.5rem" }}>⚡</div>
+          <div style={{ fontSize: "1rem", letterSpacing: "0.05em", textTransform: "uppercase" }}>
+            Initializing AgentTrust Governance Platform...
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <LoginModal />;
+  }
+
+  return (
+    <div style={{ minHeight: "100vh", paddingBottom: "4rem" }}>
+      <Navbar activeTab={activeTab} setActiveTab={setActiveTab} />
+      <main>
+        {activeTab === "dashboard" && <DashboardView />}
+        {activeTab === "agents" && <AgentsView />}
+        {activeTab === "interactions" && <InteractionsView />}
+        {activeTab === "violations" && <ViolationsView />}
+        {activeTab === "mongo" && <MongoLogsView />}
+      </main>
+    </div>
+  );
+}
+
 export default function HomePage() {
   return (
-    <main style={{ padding: "4rem 2rem", maxWidth: "900px", margin: "0 auto", textAlign: "center" }}>
-      <h1 style={{ fontSize: "2.5rem", marginBottom: "1rem", color: "var(--accent-cyan)" }}>
-        AgentTrust
-      </h1>
-      <p style={{ fontSize: "1.2rem", color: "var(--text-muted)", marginBottom: "2rem" }}>
-        Multi-Agent Governance, Risk Monitoring & Runtime Policy Enforcement
-      </p>
-      <div style={{
-        background: "var(--bg-secondary)",
-        padding: "1.5rem",
-        borderRadius: "8px",
-        border: "1px solid var(--border-color)",
-        display: "inline-block",
-        textAlign: "left"
-      }}>
-        <h3 style={{ marginBottom: "0.5rem", color: "var(--accent-emerald)" }}>System Scaffold Ready</h3>
-        <p style={{ color: "var(--text-muted)", fontSize: "0.95rem" }}>
-          Next.js App Router scaffolded with TypeScript and pinned dependencies.
-        </p>
-      </div>
-    </main>
+    <AuthProvider>
+      <MainContent />
+    </AuthProvider>
   );
 }

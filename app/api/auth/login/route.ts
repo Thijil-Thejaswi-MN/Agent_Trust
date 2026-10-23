@@ -1,16 +1,31 @@
 // ============================================================================
 // AgentTrust: POST /api/auth/login
 // Authenticates user against PostgreSQL users table using bcrypt.
-// Sets stateless httpOnly JWT session cookie with rate-limiting.
+// Strict cookie-only auth: sets httpOnly SameSite=Lax cookie.
+// Token is NEVER returned in the JSON response body.
 // ============================================================================
 
 import { NextRequest, NextResponse } from "next/server";
 import { query } from "@/lib/db/pg";
-import { verifyPassword, createSessionToken, checkRateLimit, COOKIE_NAME } from "@/lib/auth";
+import { 
+  verifyPassword, 
+  createSessionToken, 
+  checkRateLimit, 
+  verifySameOrigin,
+  COOKIE_OPTIONS 
+} from "@/lib/auth";
 
 export async function POST(req: NextRequest) {
   try {
-    // 1. IP Rate Limiting (10 attempts per minute)
+    // 1. Cross-Origin Check
+    if (!verifySameOrigin(req)) {
+      return NextResponse.json(
+        { error: "Forbidden: Cross-origin requests are rejected." },
+        { status: 403 }
+      );
+    }
+
+    // 2. IP Rate Limiting (10 attempts per minute)
     const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() || "local_client";
     const { allowed, remaining } = checkRateLimit(`login:${ip}`, 10, 60000);
     if (!allowed) {
@@ -20,7 +35,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 2. Validate input
+    // 3. Validate input
     const body = await req.json().catch(() => null);
     if (!body || !body.username || !body.password) {
       return NextResponse.json(
@@ -31,7 +46,7 @@ export async function POST(req: NextRequest) {
 
     const { username, password } = body;
 
-    // 3. Parameterized query lookup (Safe against SQL Injection)
+    // 4. Parameterized query lookup (Safe against SQL Injection)
     const sql = "SELECT user_id, username, password_hash, role FROM users WHERE username = $1;";
     const result = await query(sql, [username]);
 
@@ -45,7 +60,7 @@ export async function POST(req: NextRequest) {
 
     const user = result.rows[0];
 
-    // 4. Verify password with bcrypt
+    // 5. Verify password with bcrypt
     const isValid = await verifyPassword(password, user.password_hash);
     if (!isValid) {
       return NextResponse.json(
@@ -54,13 +69,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 5. Mint stateless JWT session token
+    // 6. Mint stateless JWT session token
     const token = await createSessionToken({
       userId: user.user_id,
       username: user.username,
       role: user.role,
     });
 
+    // 7. Strict Cookie-Only Response (no token in body)
     const response = NextResponse.json({
       success: true,
       user: {
@@ -68,18 +84,12 @@ export async function POST(req: NextRequest) {
         username: user.username,
         role: user.role,
       },
-      token, // Also returned for bearer auth in automated tests
     });
 
-    // 6. Set httpOnly SameSite=Lax cookie
+    // 8. Set httpOnly SameSite=Lax cookie (secure in production)
     response.cookies.set({
-      name: COOKIE_NAME,
+      ...COOKIE_OPTIONS,
       value: token,
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      path: "/",
-      maxAge: 8 * 3600, // 8 hours
     });
 
     return response;

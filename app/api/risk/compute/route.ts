@@ -1,15 +1,18 @@
 // ============================================================================
 // AgentTrust: Stored Function Execution API Route
 // POST: Invokes PostgreSQL stored function compute_risk_score(UUID)
-// Access: admin, auditor
+// Access: admin strictly
 // ============================================================================
 
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth";
 import { query } from "@/lib/db/pg";
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export async function POST(req: NextRequest) {
-  const auth = await requireRole(req, ["admin", "auditor"]);
+  // Restricted strictly to admin
+  const auth = await requireRole(req, ["admin"]);
   if (auth.errorResponse) return auth.errorResponse;
 
   let body: { agent_id: string };
@@ -22,6 +25,10 @@ export async function POST(req: NextRequest) {
   const { agent_id } = body;
   if (!agent_id) {
     return NextResponse.json({ error: "Missing required field: agent_id (UUID)" }, { status: 400 });
+  }
+
+  if (!UUID_REGEX.test(agent_id)) {
+    return NextResponse.json({ error: "Invalid agent_id: Must be a valid UUID" }, { status: 400 });
   }
 
   try {
