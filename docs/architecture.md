@@ -84,3 +84,22 @@ When runtime interactions are simulated or ingested:
 | **Cross-Site Request Forgery (CSRF)** | `SameSite=Lax` cookie attribute combined with strict `Origin` header validation in `verifySameOrigin(req)` for all mutating methods (`POST`, `PUT`, `DELETE`). |
 | **Brute Force Credential Guessing** | Sliding-window in-memory rate limiter throttling by client connection and per-username (5 attempts/min). Returns HTTP 429. |
 | **Secret Leakage** | All database and JWT secrets are read strictly from `.env.local` using `process.env`. Zero hard-coded credentials in source code (`git grep` clean). |
+
+---
+
+## 5. Rate Limiter Architecture & Known Limitations
+
+The authentication layer (`app/api/auth/login/route.ts`) implements an in-memory sliding-window rate limiter designed to defend against automated brute-force attacks and credential stuffing.
+
+### Mechanism
+- **Per-Client Sliding Window**: Each incoming request is tracked within a 60-second sliding window (default limit: 5 failed attempts per minute).
+- **Per-Username Lockout Window**: Each unique `username` submitted in failed authentication attempts is tracked independently. After 5 consecutive failed attempts for a given username within 60 seconds, further attempts targeting that username are throttled with `429 Too Many Requests`.
+
+### Documented Limitations & Operational Trade-offs
+1. **Shared Client Bucket when `TRUST_PROXY` is Disabled**:
+   - To prevent IP spoofing attacks where an attacker crafts arbitrary `X-Forwarded-For` headers to evade rate limits, AgentTrust ignores `X-Forwarded-For` unless `TRUST_PROXY=true` is explicitly set in `.env.local`.
+   - *Limitation*: When `TRUST_PROXY` is off, requests originating from multiple users behind a shared NAT, corporate VPN, or reverse proxy that strips socket information will be lumped into the same client bucket. A single abusive user behind a shared NAT can exhaust the rate limit bucket for all co-located users.
+2. **Account Denial-of-Service (DoS) via Per-Username Lockout**:
+   - The per-username lockout protects against distributed brute-force attacks where an attacker rotates IP addresses to crack a specific account (e.g., `admin`).
+   - *Limitation / Attack Surface*: Because the username lockout triggers regardless of the origin IP, an attacker who knows a target username can deliberately submit 5 incorrect passwords every 60 seconds. This locks the legitimate account for 60 seconds at a time, resulting in a persistent targeted Denial-of-Service against the administrative persona. Production systems would mitigate this using progressive CAPTCHAs, multi-factor authentication (MFA), or out-of-band email unlock tokens rather than indefinite full lockouts.
+

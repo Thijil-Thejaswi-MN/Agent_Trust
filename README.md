@@ -86,9 +86,12 @@ AgentTrust employs a polyglot persistence architecture, assigning relational gov
    cp .env.example .env.local
    cp .env.example .env
    ```
-   *(Note: Populate `.env.local` with your secure database passwords and a `>= 32` char `JWT_SECRET`).*
+   *(Important: Ensure `.env.local` and `.env` use the same passwords and ports. The `JWT_SECRET` must be `>= 32` characters, or the application will refuse to start for security).*
 
 3. **Start Database Containers & Run Complete Reset**:
+   > [!IMPORTANT]
+   > **Always run `db/reset.ps1` (or `db/reset.sh`) before any evaluation or demo.** This guarantees that all containers, schemas, triggers, indexes, and baseline seeds are cleanly restored to a known healthy state.
+
    - **Windows (PowerShell)**:
      ```powershell
      pwsh -ExecutionPolicy Bypass -File db/reset.ps1
@@ -98,30 +101,31 @@ AgentTrust employs a polyglot persistence architecture, assigning relational gov
      chmod +x db/reset.sh
      ./db/reset.sh
      ```
-   *This command stops any existing containers, wipes volumes, boots fresh Postgres and Mongo instances, loads all SQL schemas/seeds/triggers/functions/views/indexes, builds Mongo indexes, seeds 45 polymorphic documents, and verifies 100% bidirectional cross-database consistency.*
+   *Note: `docker-compose.yml` specifies `name: agenttrust`, ensuring that Docker Compose commands reliably target the same project across any clone directory.*
 
 4. **Install Dependencies & Start Application**:
    ```bash
    npm install
    npm run dev
    ```
+   *(If port 3000 is occupied by a background process, terminate it before starting).*
    Open **`http://localhost:3000`** in your browser.
 
 ---
 
 ## 4. Evaluator Walkthrough & Demo Script
 
-Follow this step-by-step procedure to evaluate all system features:
+Follow this step-by-step procedure to evaluate all system features (screenshots available in [`docs/screenshots/`](docs/screenshots/)):
 
 ### Step 1: Sign in as Administrator
-1. On the initial login modal, click **`ADMIN (Full Control)`** (or enter `admin` / `admin123`).
+1. On the initial login modal ([`docs/screenshots/login.png`](docs/screenshots/login.png)), click **`ADMIN (Full Control)`** (or enter `admin` / `admin123`).
 2. You will be authenticated via an `httpOnly` cookie (`agenttrust_token`). Notice the purple **`ADMIN`** badge in the navbar.
 
 ### Step 2: Test the Live Trigger Cascade Simulator
-1. On the **Dashboard**, locate the **Runtime Trigger Cascade Simulator** banner.
+1. On the **Dashboard** ([`docs/screenshots/dashboard.png`](docs/screenshots/dashboard.png)), locate the **Runtime Trigger Cascade Simulator** banner.
 2. Select **`Prohibited Protocol (Critical Breach -> Auto-Quarantine)`** from the scenario dropdown.
 3. Click **`Simulate Interaction`**.
-4. Observe the live execution result:
+4. Observe the live execution result ([`docs/screenshots/simulate_cascade.png`](docs/screenshots/simulate_cascade.png)):
    - PostgreSQL inserts interaction with `protocol = 'A2A/1.0-Legacy-Unencrypted'`.
    - `trg_evaluate_interaction_policies` fires and inserts a `critical` severity violation.
    - `trg_auto_quarantine_on_critical_violation` immediately fires, creating an active quarantine event and marking source agent `Alpha-SecOps-01` as `quarantined`.
@@ -129,33 +133,33 @@ Follow this step-by-step procedure to evaluate all system features:
    - The Active Quarantines KPI and Containment list update in real time!
 
 ### Step 3: Explore the Agent Registry & Recompute Risk
-1. Click the **`Agent Registry`** tab in the navbar.
+1. Click the **`Agent Registry`** tab in the navbar ([`docs/screenshots/agent_registry.png`](docs/screenshots/agent_registry.png)).
 2. Review the registered agents, their cryptographic certificates, and posture scores.
 3. Click **`Recompute Risk`** on any agent. This calls the PostgreSQL stored function `compute_risk_score(UUID)`, recalculating penalties over the 30-day window and updating the animated risk meter.
 4. Click **`+ Register Agent`** to test agent registration (unique certificate and name constraints enforced).
 
 ### Step 4: Author a Governance Policy
-1. Click the **`Governance Policies`** tab.
+1. Click the **`Governance Policies`** tab ([`docs/screenshots/policies.png`](docs/screenshots/policies.png)).
 2. Review the active SLA policies and enforcement triggers.
 3. Click **`+ Author New Policy`**.
 4. Enter Name `Edge Ingress Latency SLA`, Rule Type `latency_d2b`, and Threshold `180.00`.
 5. Submit to observe the new rule committed to PostgreSQL.
 
 ### Step 5: Test Quarantine Containment & Release
-1. Click the **`Violations & Quarantine`** tab.
+1. Click the **`Violations & Quarantine`** tab ([`docs/screenshots/violations_quarantine.png`](docs/screenshots/violations_quarantine.png)).
 2. View the **Active Violations Posture** backed by `active_violations_view`.
 3. Locate `Alpha-SecOps-01` in the **Quarantine Containment Audit Trail**.
 4. Click **`Release Agent`**, enter an audit justification, and confirm.
 5. PostgreSQL executes an atomic transaction with `SELECT ... FOR UPDATE`, transitioning the agent back to `active`.
 
 ### Step 6: Inspect the MongoDB Anomaly Leaderboard
-1. Click the **`MongoDB Anomaly Pipeline`** tab.
+1. Click the **`MongoDB Anomaly Pipeline`** tab ([`docs/screenshots/mongo_anomalies.png`](docs/screenshots/mongo_anomalies.png)).
 2. Observe the **Pipeline Anomaly Leaderboard**: `Theta-Threat-Scanner` is ranked #1 with an anomaly score of **150 pts** due to planted governance bypass headers, oversized payloads (>50KB), and suspicious bytecode commands.
 3. Click on any row in the **Polymorphic Raw Payload Inspector** to expand the interactive JSON viewer and inspect raw headers and payloads.
 
 ### Step 7: Evaluate Auditor Persona & RoleGate
 1. Click **`Sign Out`** in the top right.
-2. Click **`AUDITOR (Read-Only)`** (or enter `auditor` / `auditor123`).
+2. Click **`AUDITOR (Read-Only)`** (or enter `auditor` / `auditor123`) ([`docs/screenshots/auditor_view.png`](docs/screenshots/auditor_view.png)).
 3. Notice the cyan **`AUDITOR`** badge in the navbar.
 4. Observe that write buttons are safely disabled:
    - On the Dashboard: Simulate button displays `Auditor (Read-Only)`.
@@ -168,10 +172,11 @@ Follow this step-by-step procedure to evaluate all system features:
 
 ## 5. Automated Test Suite Execution
 
-Run the comprehensive 40-point verification suite:
+Run the comprehensive 41-point verification suite:
 ```bash
 node scripts/test_api_matrix.mjs
 ```
+*Note: The test script automatically restores the clean seed baseline post-execution.*
 
 ### Verified Test Matrix Coverage:
 1. **Unauthenticated Endpoint Gating**: 401 Unauthorized across all protected routes.
@@ -182,17 +187,22 @@ node scripts/test_api_matrix.mjs
 6. **Defensive Controls**: Parameterized SQL injection defense, malformed JSON (400), invalid UUID regex check (400), cross-origin mutating request rejection (403).
 7. **MongoDB Aggregation Pipeline**: Pipeline executes and correctly ranks `Theta-Threat-Scanner` at 150 points.
 8. **Rate Limiting**: Brute-force protection throttles failed login attempts per username and client address (429).
+9. **Baseline Restoration**: Cleans up simulation artifacts and verifies exact row counts.
 
 ---
 
 ## 6. Documentation Directory Sitemap
 
 Comprehensive documentation is provided in the `docs/` folder:
-- **[docs/architecture.md](docs/architecture.md)**: Full system architecture, dual-write flow, and defense-in-depth model.
+- **[docs/project-report.md](docs/project-report.md)**: Primary formal course report covering problem statement, objectives, scope, functional requirements, relational schema, data dictionary, architecture, screenshots, and conclusion.
+- **[docs/requirement-mapping.md](docs/requirement-mapping.md)**: Line-by-line verification evidence mapping across all 18 numbered coursework requirements and the suggested stack.
+- **[docs/architecture.md](docs/architecture.md)**: Full system architecture, dual-write flow, defense-in-depth model, and documented rate limiter limitations.
+- **[docs/benchmark-results.md](docs/benchmark-results.md)**: 200,000 synthetic row composite indexing benchmark (234.6x speedup).
 - **[docs/schema-er-diagram.md](docs/schema-er-diagram.md)**: Mermaid ER diagram, relational schemas, constraints, and data dictionary.
 - **[docs/sql-nosql-justification.md](docs/sql-nosql-justification.md)**: In-depth technical justification for SQL vs. NoSQL polyglot persistence.
 - **[docs/important-queries.md](docs/important-queries.md)**: Stored procedures, trigger definitions, views, lateral joins, and aggregation pipelines.
-- **[docs/benchmark-results.md](docs/benchmark-results.md)**: 200,000 synthetic row composite indexing benchmark (234.6x speedup).
-- **[docs/requirement-mapping.md](docs/requirement-mapping.md)**: Coursework requirement-to-feature traceability matrix.
-- **[docs/test-results.md](docs/test-results.md)**: Negative constraint tests, cross-database integrity verification, and API matrix logs.
 - **[docs/mongo-data-model.md](docs/mongo-data-model.md)**: Unstructured polymorphic document schemas and aggregation pipeline details.
+- **[docs/risk-score-specification.md](docs/risk-score-specification.md)**: Mathematical risk decay model and posture bands.
+- **[docs/test-results.md](docs/test-results.md)**: Negative constraint tests, cross-database integrity verification, and API matrix logs.
+- **[docs/screenshots/](docs/screenshots/)** : 8 verified application interface screenshots.
+
