@@ -76,8 +76,8 @@ AgentTrust employs a polyglot persistence architecture, assigning relational gov
 ### Step-by-Step Installation
 1. **Clone & Enter Repository**:
    ```bash
-   git clone <repository-url>
-   cd DBMS
+   git clone https://github.com/Thijil-Thejaswi-MN/Agent_Trust.git
+   cd Agent_Trust
    ```
 
 2. **Configure Environment Variables**:
