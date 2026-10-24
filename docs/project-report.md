@@ -52,12 +52,15 @@ AgentTrust solves this challenge by implementing an **enterprise-grade runtime g
 
 ## 2. Team Responsibilities & Role Division
 
-To fulfill the Level 3 2-member collaboration requirement, project responsibilities are partitioned symmetrically across database engineering and full-stack application development:
+To fulfill the Level 3 2-member collaboration requirement, project responsibilities are planned across database engineering and full-stack application development.
 
-| Team Member | Core Focus | Database Engineering Responsibilities | Application & Integration Responsibilities |
+> [!NOTE]
+> **Git History Status**: The local commit log (`git log`) currently records foundational commits authored by **[Member 1 name]** (`Thijil-Thejaswi-MN`), establishing the polyglot Docker environment, SQL DDL/DML, trigger cascades, stored functions, composite indexing benchmarks, and Next.js Route Handlers. Collaboration with **[Member 2 name]** is structured below and will be recorded in subsequent commits following remote GitHub origin configuration (`git remote add origin`).
+
+| Team Member | Planned Role Focus | Database Engineering Responsibilities | Application & Integration Responsibilities |
 | :--- | :--- | :--- | :--- |
-| **Member 1** | **Database Architect & Backend Systems** | • Relational schema design (7 normalized 3NF tables, PKs, FKs, constraints).<br>• PL/pgSQL stored function `compute_risk_score(UUID)`.<br>• Trigger cascades (`trg_evaluate_interaction_policies`, `trg_auto_quarantine`).<br>• Composite indexing & EXPLAIN ANALYZE 200k synthetic benchmark.<br>• Relational view `active_violations_view`. | • Next.js 16 API Route Handlers (`app/api/auth`, `/agents`, `/policies`, `/quarantine`, `/risk`).<br>• Raw `pg` connection pool integration (strictly NO ORM).<br>• Stateless JWT authentication & cookie-only session management.<br>• Centralized server-side RBAC enforcement (`requireRole`).<br>• Pessimistic concurrency control (`SELECT ... FOR UPDATE`). |
-| **Member 2** | **NoSQL Telemetry & Frontend Systems** | • MongoDB document schema design (`interaction_logs` collection).<br>• 4-stage threat anomaly aggregation pipeline (`$project`, `$group`, `$sort`).<br>• Single, compound, and unique index design on MongoDB.<br>• Cross-database referential consistency verification script.<br>• Realistic seed generation (45 polymorphic documents, Theta anomalies). | • Next.js 16 App Router UI & interactive client components.<br>• Custom Vanilla CSS glassmorphic dark design system (zero TailwindCSS).<br>• Real-time Trigger Cascade Simulator with dynamic feedback.<br>• Interactive JSON polymorphic payload inspector.<br>• Client-side `RoleGate` RBAC view gating for Admin and Auditor personas. |
+| **[Member 1 name]**<br>*(Active Local Author)* | **Database Architect & Backend Systems** | • Relational schema design (7 normalized 3NF tables, PKs, FKs, constraints).<br>• PL/pgSQL stored function `compute_risk_score(UUID)`.<br>• Trigger cascades (`trg_evaluate_interaction_policies`, `trg_auto_quarantine`).<br>• Composite indexing & EXPLAIN ANALYZE 200k synthetic benchmark.<br>• Relational view `active_violations_view`. | • Next.js 16 API Route Handlers (`app/api/auth`, `/agents`, `/policies`, `/quarantine`, `/risk`, `/stats`).<br>• Raw `pg` connection pool integration (strictly NO ORM).<br>• Stateless JWT authentication & cookie-only session management.<br>• Centralized server-side RBAC enforcement (`requireRole`).<br>• Pessimistic concurrency control (`SELECT ... FOR UPDATE`). |
+| **[Member 2 name]**<br>*(Collaborator / Incoming)* | **NoSQL Telemetry & Frontend Systems** | • MongoDB document schema design (`interaction_logs` collection).<br>• 4-stage threat anomaly aggregation pipeline (`$project`, `$group`, `$sort`).<br>• Single, compound, and unique index design on MongoDB.<br>• Cross-database referential consistency verification script.<br>• Realistic seed generation (45 polymorphic documents, Theta anomalies). | • Next.js 16 App Router UI & interactive client components.<br>• Custom Vanilla CSS glassmorphic dark design system (zero TailwindCSS).<br>• Real-time Trigger Cascade Simulator with dynamic feedback.<br>• Interactive JSON polymorphic payload inspector.<br>• Client-side `RoleGate` RBAC view gating for Admin and Auditor personas. |
 
 ---
 
@@ -251,39 +254,40 @@ The relational database consists of 7 normalized 3NF tables in PostgreSQL 16:
 
 4. **`interactions`**: High-frequency communication telemetry between agents.
    - `interaction_id` (UUID, PK, `gen_random_uuid()`).
-   - `source_agent_id` (UUID, FK -> `agents.agent_id` ON DELETE RESTRICT).
-   - `target_agent_id` (UUID, FK -> `agents.agent_id` ON DELETE RESTRICT).
-   - `protocol` (VARCHAR(64), NOT NULL).
-   - `latency_ms` (NUMERIC(10,2), NOT NULL, CHECK `latency_ms >= 0`).
-   - `status` (VARCHAR(32), NOT NULL, CHECK `status IN ('success', 'failed', 'blocked')`).
-   - `initiated_at` (TIMESTAMPTZ, DEFAULT `NOW()`).
-   - *Constraint*: `CHECK (source_agent_id != target_agent_id)` prevents recursive self-interactions.
+   - `source_agent_id` (UUID, FK -> `agents.agent_id` ON DELETE CASCADE).
+   - `target_agent_id` (UUID, FK -> `agents.agent_id` ON DELETE CASCADE).
+   - `protocol` (VARCHAR(50), NOT NULL).
+   - `status` (VARCHAR(30), NOT NULL, DEFAULT `'completed'`).
+   - `latency_d2d` (NUMERIC(10,2), NULL, Device-to-device latency in ms).
+   - `latency_d2b` (NUMERIC(10,2), NULL, Device-to-broker latency in ms).
+   - `latency_d2rev` (NUMERIC(10,2), NULL, Device-to-reviewer latency in ms).
+   - `initiated_at` (TIMESTAMPTZ, NOT NULL, DEFAULT `NOW()`).
+   - `completed_at` (TIMESTAMPTZ, NULL).
+   - *Constraint 1*: `CHECK (source_agent_id <> target_agent_id)` prevents recursive self-interactions.
+   - *Constraint 2*: `CHECK ((latency_d2d IS NULL OR latency_d2d >= 0.0) AND (latency_d2b IS NULL OR latency_d2b >= 0.0) AND (latency_d2rev IS NULL OR latency_d2rev >= 0.0))` enforces non-negative latency measurements.
 
 5. **`violations`**: Breaches detected by trigger evaluation.
    - `violation_id` (UUID, PK, `gen_random_uuid()`).
    - `interaction_id` (UUID, FK -> `interactions.interaction_id` ON DELETE CASCADE).
-   - `agent_id` (UUID, FK -> `agents.agent_id` ON DELETE CASCADE).
-   - `policy_id` (UUID, FK -> `policies.policy_id` ON DELETE SET NULL).
-   - `severity` (VARCHAR(32), NOT NULL, CHECK `severity IN ('critical', 'high', 'medium', 'low')`).
+   - `policy_id` (UUID, FK -> `policies.policy_id` ON DELETE RESTRICT).
+   - `severity` (VARCHAR(20), NOT NULL, CHECK `severity IN ('low', 'medium', 'high', 'critical')`).
    - `description` (TEXT, NOT NULL).
-   - `detected_at` (TIMESTAMPTZ, DEFAULT `NOW()`).
+   - `detected_at` (TIMESTAMPTZ, NOT NULL, DEFAULT `NOW()`).
 
 6. **`quarantine_events`**: Immutable containment lifecycle audit log.
-   - `event_id` (UUID, PK, `gen_random_uuid()`).
+   - `quarantine_id` (UUID, PK, `gen_random_uuid()`).
    - `agent_id` (UUID, FK -> `agents.agent_id` ON DELETE CASCADE).
-   - `triggered_by_user_id` (UUID, NULL, FK -> `users.user_id` ON DELETE SET NULL).
-   - `reason` (TEXT, NOT NULL).
-   - `status` (VARCHAR(32), NOT NULL, DEFAULT `'active'`, CHECK `status IN ('active', 'released')`).
-   - `quarantined_at` (TIMESTAMPTZ, DEFAULT `NOW()`).
+   - `violation_id` (UUID, NULL, FK -> `violations.violation_id` ON DELETE SET NULL).
+   - `status` (VARCHAR(20), NOT NULL, DEFAULT `'active'`, CHECK `status IN ('active', 'released')`).
+   - `quarantined_at` (TIMESTAMPTZ, NOT NULL, DEFAULT `NOW()`).
    - `released_at` (TIMESTAMPTZ, NULL).
-   - `release_justification` (TEXT, NULL).
+   - *Partial Unique Index*: `idx_single_active_quarantine_per_agent ON quarantine_events (agent_id) WHERE status = 'active'` (enforces at most ONE active quarantine per agent).
 
 7. **`risk_scores`**: Historical risk posture evaluations computed by stored procedure.
    - `score_id` (UUID, PK, `gen_random_uuid()`).
    - `agent_id` (UUID, FK -> `agents.agent_id` ON DELETE CASCADE).
-   - `score` (NUMERIC(5,2), NOT NULL, CHECK `score >= 0.00 AND score <= 100.00`).
-   - `posture_band` (VARCHAR(32), NOT NULL, CHECK `posture_band IN ('nominal', 'elevated', 'critical')`).
-   - `evaluated_at` (TIMESTAMPTZ, DEFAULT `NOW()`).
+   - `score_value` (NUMERIC(5,2), NOT NULL, CHECK `score_value >= 0.0 AND score_value <= 100.0`).
+   - `computed_at` (TIMESTAMPTZ, NOT NULL, DEFAULT `NOW()`).
 
 ### MongoDB Polymorphic Telemetry Model
 
@@ -476,11 +480,11 @@ All 8 application views were verified and captured using autonomous browser suba
 
 ## 10. Test Matrix & Empirical Verification
 
-The comprehensive test script `scripts/test_api_matrix.mjs` executes 41 automated verification assertions:
+The comprehensive test script `scripts/test_api_matrix.mjs` executes 45 automated verification assertions:
 
 ```
 ================================================================================
-AGENTTRUST: AUTOMATED VERIFICATION MATRIX RUN
+AGENTTRUST PHASE 4: REVISED COOKIE-ONLY FULL VERIFICATION MATRIX
 ================================================================================
 
 --- SECTION 1: Unauthenticated Endpoint Gating (401 Gating) ---
@@ -491,6 +495,7 @@ AGENTTRUST: AUTOMATED VERIFICATION MATRIX RUN
 [PASS] Unauthenticated GET /api/quarantine returns 401
 [PASS] Unauthenticated GET /api/logs returns 401
 [PASS] Unauthenticated GET /api/logs/anomalies returns 401
+[PASS] Unauthenticated GET /api/stats returns 401
 
 --- SECTION 2: Authentication & Strict Cookie-Only Storage ---
 [PASS] Bad credentials return 401 Unauthorized
@@ -507,6 +512,9 @@ AGENTTRUST: AUTOMATED VERIFICATION MATRIX RUN
 
 --- SECTION 3: RBAC Enforcement ---
 [PASS] Auditor can read /api/agents via Cookie (200 OK)
+[PASS] Auditor can read /api/stats via Cookie (200 OK)
+[PASS] Stats endpoint executes GROUP BY ... HAVING on protocol analytics
+[PASS] Stats endpoint executes subquery for uncontained violations
 [PASS] Auditor POST /api/agents is 403 Forbidden
 [PASS] Auditor POST /api/policies is 403 Forbidden
 [PASS] Auditor POST /api/quarantine/action is 403 Forbidden
@@ -544,7 +552,7 @@ Firing 2 simultaneous quarantine requests for same agent...
 [PASS] Seed baseline restored: 10 agents (8 active, 1 quarantined), 1 quarantine event, 10 risk scores, 45 interactions
 
 ================================================================================
-TEST SUMMARY: 41 Passed, 0 Failed
+TEST SUMMARY: 45 Passed, 0 Failed
 ================================================================================
 ```
 

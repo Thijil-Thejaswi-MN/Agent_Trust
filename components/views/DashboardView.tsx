@@ -9,6 +9,7 @@ export function DashboardView() {
   const [agents, setAgents] = useState<any[]>([]);
   const [violations, setViolations] = useState<any[]>([]);
   const [quarantines, setQuarantines] = useState<any[]>([]);
+  const [stats, setStats] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
 
   // Simulation state
@@ -18,10 +19,11 @@ export function DashboardView() {
 
   const loadData = async () => {
     try {
-      const [agRes, vRes, qRes] = await Promise.all([
+      const [agRes, vRes, qRes, sRes] = await Promise.all([
         fetch("/api/agents", { credentials: "include" }),
         fetch("/api/violations", { credentials: "include" }),
         fetch("/api/quarantine?status=active", { credentials: "include" }),
+        fetch("/api/stats", { credentials: "include" }),
       ]);
 
       if (agRes.ok) {
@@ -35,6 +37,10 @@ export function DashboardView() {
       if (qRes.ok) {
         const d = await qRes.json();
         setQuarantines(d.events || []);
+      }
+      if (sRes.ok) {
+        const d = await sRes.json();
+        setStats(d);
       }
     } finally {
       setLoading(false);
@@ -307,6 +313,88 @@ export function DashboardView() {
           </div>
         </div>
       </div>
+
+      {/* Aggregated Analytics Section (Course Req 6: GROUP BY, HAVING, Subqueries, Aggregates) */}
+      {stats && (
+        <div className="glass-panel" style={{ marginTop: "2rem", padding: "1.5rem" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem", flexWrap: "wrap", gap: "0.5rem" }}>
+            <div>
+              <h3 style={{ fontSize: "1.05rem" }}>Aggregated Telemetry & Posture Analytics</h3>
+              <p style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
+                Computed in PostgreSQL using <code className="mono">GROUP BY ... HAVING</code>, aggregates (<code className="mono">COUNT</code>, <code className="mono">AVG</code>, <code className="mono">MAX</code>), and subqueries
+              </p>
+            </div>
+            <div style={{ display: "flex", gap: "1rem" }}>
+              <span className="status-pill active" style={{ fontSize: "0.75rem" }}>
+                Uncontained Violations: {stats.uncontained_violations}
+              </span>
+              {stats.highest_risk_agent && (
+                <span className="status-pill quarantined" style={{ fontSize: "0.75rem" }}>
+                  Peak Risk: {stats.highest_risk_agent.name} ({stats.highest_risk_agent.current_risk} pts)
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: "1.5rem" }}>
+            {/* Protocol Latency Analytics */}
+            <div>
+              <div style={{ fontSize: "0.85rem", fontWeight: 600, color: "var(--accent-cyan)", marginBottom: "0.5rem" }}>
+                Protocol Latency Benchmarks (GROUP BY protocol HAVING COUNT &gt;= 1)
+              </div>
+              <div className="table-container">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Protocol</th>
+                      <th>Total Calls</th>
+                      <th>Avg Latency</th>
+                      <th>Peak Latency</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {stats.protocol_analytics?.map((p: any) => (
+                      <tr key={p.protocol}>
+                        <td><code className="mono" style={{ fontSize: "0.75rem" }}>{p.protocol}</code></td>
+                        <td>{p.total_interactions}</td>
+                        <td>{p.avg_latency_ms} ms</td>
+                        <td>{p.max_latency_ms} ms</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Agent Status Posture Distribution */}
+            <div>
+              <div style={{ fontSize: "0.85rem", fontWeight: 600, color: "var(--accent-purple)", marginBottom: "0.5rem" }}>
+                Posture by Operational Status (GROUP BY status HAVING COUNT &gt; 0)
+              </div>
+              <div className="table-container">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Status</th>
+                      <th>Agents</th>
+                      <th>Mean Posture Risk</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {stats.posture_distribution?.map((s: any) => (
+                      <tr key={s.status}>
+                        <td><span className={`status-pill ${s.status}`}>{s.status}</span></td>
+                        <td>{s.agent_count}</td>
+                        <td>{s.avg_posture_risk} pts</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

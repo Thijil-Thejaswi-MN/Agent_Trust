@@ -45,7 +45,8 @@ async function runTests() {
     "/api/violations",
     "/api/quarantine",
     "/api/logs",
-    "/api/logs/anomalies"
+    "/api/logs/anomalies",
+    "/api/stats"
   ];
 
   for (const ep of unauthEndpoints) {
@@ -109,6 +110,15 @@ async function runTests() {
   });
   const audAgentsData = await audAgentsRes.json();
   assert("Auditor can read /api/agents via Cookie (200 OK)", audAgentsRes.status === 200 && Array.isArray(audAgentsData.agents));
+
+  // Auditor can read aggregated stats (/api/stats: GROUP BY, HAVING, subqueries, aggregates)
+  const audStatsRes = await fetch(`${BASE_URL}/api/stats`, {
+    headers: { Cookie: auditorCookie }
+  });
+  const audStatsData = await audStatsRes.json();
+  assert("Auditor can read /api/stats via Cookie (200 OK)", audStatsRes.status === 200, `Status: ${audStatsRes.status}`);
+  assert("Stats endpoint executes GROUP BY ... HAVING on protocol analytics", Array.isArray(audStatsData.protocol_analytics) && audStatsData.protocol_analytics.length > 0);
+  assert("Stats endpoint executes subquery for uncontained violations", typeof audStatsData.uncontained_violations === "number");
 
   // Auditor cannot create agents (403 Forbidden)
   const audAgentCreateRes = await fetch(`${BASE_URL}/api/agents`, {

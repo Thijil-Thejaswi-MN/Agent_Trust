@@ -221,6 +221,58 @@ FROM agents
 WHERE agent_id = 'b0000000-0000-0000-0000-000000000004';
 
 -- ----------------------------------------------------------------------------
+-- TEST 6B: NEGATIVE CONSTRAINT INTEGRITY TESTS
+-- Verifies that invalid data breaches are trapped and rejected by database CHECK and UNIQUE constraints.
+-- ----------------------------------------------------------------------------
+DO $$
+BEGIN
+    -- Negative Test 1: Duplicate agent name (UNIQUE)
+    BEGIN
+        INSERT INTO agents (name, agent_type, owner_team, cert_fingerprint) 
+        VALUES ('Alpha-SecOps-01', 'security_scanner', 'SecOps', 'SHA256:NEW_DUPLICATE_NAME');
+        RAISE EXCEPTION 'Negative Test 1 FAILED: Duplicate agent name was accepted';
+    EXCEPTION WHEN unique_violation THEN
+        RAISE NOTICE 'Negative Test 1 PASSED: Duplicate agent name rejected by UNIQUE constraint';
+    END;
+
+    -- Negative Test 2: Invalid agent status (CHECK)
+    BEGIN
+        INSERT INTO agents (name, agent_type, owner_team, cert_fingerprint, status) 
+        VALUES ('Bad-Status-Agent', 'security_scanner', 'SecOps', 'SHA256:BADSTATUS', 'compromised');
+        RAISE EXCEPTION 'Negative Test 2 FAILED: Invalid status was accepted';
+    EXCEPTION WHEN check_violation THEN
+        RAISE NOTICE 'Negative Test 2 PASSED: Invalid status rejected by CHECK constraint';
+    END;
+
+    -- Negative Test 3: Self interaction check (CHECK source <> target)
+    BEGIN
+        INSERT INTO interactions (source_agent_id, target_agent_id, protocol, latency_d2d)
+        VALUES ('b0000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000001', 'gRPC/v2', 50.0);
+        RAISE EXCEPTION 'Negative Test 3 FAILED: Self-interaction was accepted';
+    EXCEPTION WHEN check_violation THEN
+        RAISE NOTICE 'Negative Test 3 PASSED: Self-interaction rejected by check_no_self_interaction';
+    END;
+
+    -- Negative Test 4: Negative latency check (CHECK check_latency_non_negative)
+    BEGIN
+        INSERT INTO interactions (source_agent_id, target_agent_id, protocol, latency_d2d)
+        VALUES ('b0000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000002', 'gRPC/v2', -15.5);
+        RAISE EXCEPTION 'Negative Test 4 FAILED: Negative latency was accepted';
+    EXCEPTION WHEN check_violation THEN
+        RAISE NOTICE 'Negative Test 4 PASSED: Negative latency rejected by check_latency_non_negative';
+    END;
+
+    -- Negative Test 5: Risk score out of bounds > 100.0 (CHECK risk_scores_score_value_check)
+    BEGIN
+        INSERT INTO risk_scores (agent_id, score_value)
+        VALUES ('b0000000-0000-0000-0000-000000000001', 150.00);
+        RAISE EXCEPTION 'Negative Test 5 FAILED: Out-of-bounds risk score was accepted';
+    EXCEPTION WHEN check_violation THEN
+        RAISE NOTICE 'Negative Test 5 PASSED: Score 150.00 rejected by risk_scores_score_value_check';
+    END;
+END $$;
+
+-- ----------------------------------------------------------------------------
 -- TEST 7: HONEST INDEX BENCHMARK WITH 200,000 SYNTHETIC ROWS
 -- Generates 200,000 synthetic interactions inside the transaction, runs ANALYZE,
 -- tests EXPLAIN ANALYZE without the index, creates the index, runs ANALYZE,

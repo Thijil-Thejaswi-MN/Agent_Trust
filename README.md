@@ -172,7 +172,7 @@ Follow this step-by-step procedure to evaluate all system features (screenshots 
 
 ## 5. Automated Test Suite Execution
 
-Run the comprehensive 41-point verification suite:
+Run the comprehensive 45-point verification suite:
 ```bash
 node scripts/test_api_matrix.mjs
 ```

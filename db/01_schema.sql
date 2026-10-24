@@ -72,7 +72,12 @@ CREATE TABLE interactions (
     latency_d2rev NUMERIC(10, 2),  -- Device-to-reviewer latency in ms
     initiated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     completed_at TIMESTAMPTZ,
-    CONSTRAINT check_no_self_interaction CHECK (source_agent_id <> target_agent_id)
+    CONSTRAINT check_no_self_interaction CHECK (source_agent_id <> target_agent_id),
+    CONSTRAINT check_latency_non_negative CHECK (
+        (latency_d2d IS NULL OR latency_d2d >= 0.0) AND
+        (latency_d2b IS NULL OR latency_d2b >= 0.0) AND
+        (latency_d2rev IS NULL OR latency_d2rev >= 0.0)
+    )
 );
 
 -- ----------------------------------------------------------------------------
