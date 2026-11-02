@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
       LEFT JOIN users u ON p.created_by = u.user_id
       ORDER BY p.created_at DESC;
     `;
-    const result = await query(sql);
+    const result = await query(auth.user.role, sql);
     return NextResponse.json({ policies: result.rows, count: result.rowCount });
   } catch (err: any) {
     console.error("Policies GET error:", err);
@@ -79,7 +79,7 @@ export async function POST(req: NextRequest) {
       VALUES ($1, $2, $3, $4)
       RETURNING *;
     `;
-    const result = await query(sql, [name.trim(), rule_type, numThreshold, auth.user.userId]);
+    const result = await query(auth.user.role, sql, [name.trim(), rule_type, numThreshold, auth.user.userId]);
     return NextResponse.json({ success: true, policy: result.rows[0] }, { status: 201 });
   } catch (err: any) {
     if (err.code === "23505") {

@@ -84,7 +84,7 @@ export async function GET(req: NextRequest) {
       ORDER BY a.${safeSortColumn} ${sortOrder};
     `;
 
-    const result = await query(sql, params);
+    const result = await query(auth.user.role, sql, params);
     return NextResponse.json({ agents: result.rows, count: result.rowCount });
   } catch (err: any) {
     console.error("Agents GET error:", err);
@@ -118,7 +118,7 @@ export async function POST(req: NextRequest) {
       RETURNING *;
     `;
 
-    const result = await query(sql, [name, agent_type, owner_team, cert_fingerprint, safeStatus]);
+    const result = await query(auth.user.role, sql, [name, agent_type, owner_team, cert_fingerprint, safeStatus]);
     return NextResponse.json({ success: true, agent: result.rows[0] }, { status: 201 });
   } catch (err: any) {
     // Gracefully handle UNIQUE constraint violations

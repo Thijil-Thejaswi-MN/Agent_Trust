@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
   }
 
   // 2. Acquire dedicated database client for explicit transaction
-  const client = await getClient();
+  const client = await getClient(auth.user.role);
 
   try {
     await client.query("BEGIN");

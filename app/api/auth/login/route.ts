@@ -57,8 +57,9 @@ export async function POST(req: NextRequest) {
     }
 
     // 5. Parameterized query lookup (Safe against SQL Injection)
-    const sql = "SELECT user_id, username, password_hash, role FROM users WHERE username = $1;";
-    const result = await query(sql, [username]);
+    // Least privilege: executes via read-only 'auditor' pool using SECURITY DEFINER get_login_record()
+    const sql = "SELECT user_id, username, password_hash, role FROM get_login_record($1);";
+    const result = await query("auditor", sql, [username]);
 
     if (result.rows.length === 0) {
       // Generic error to prevent username enumeration

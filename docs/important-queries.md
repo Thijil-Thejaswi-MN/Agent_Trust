@@ -219,3 +219,127 @@ Used in [app/api/logs/anomalies/route.ts](file:///c:/Users/thiji/OneDrive/Docume
   }
 ]
 ```
+
+---
+
+## 7. Recursive CTE: Agent Blast Radius Analysis
+Defined in [db/07_advanced_queries.sql](file:///c:/Users/thiji/OneDrive/Documents/Projects/DBMS/db/07_advanced_queries.sql) and executed via [app/api/agents/blast-radius/route.ts](file:///c:/Users/thiji/OneDrive/Documents/Projects/DBMS/app/api/agents/blast-radius/route.ts). Starting from an audited source agent, recursively traces pairwise interactions (`source` $\to$ `target`) up to $N$ hops to evaluate systemic blast radius, using an array cycle guard to halt loops:
+
+```sql
+WITH RECURSIVE blast_radius AS (
+    -- Anchor Member: Direct outbound interactions from starting agent (Depth 1)
+    SELECT 
+        i.target_agent_id AS agent_id,
+        tgt.name AS agent_name,
+        tgt.agent_type,
+        tgt.owner_team,
+        tgt.status,
+        1 AS depth,
+        ARRAY[i.source_agent_id, i.target_agent_id]::UUID[] AS path_ids,
+        ARRAY[src.name, tgt.name]::VARCHAR[] AS path_names,
+        i.protocol AS via_protocol,
+        i.initiated_at AS interaction_time
+    FROM interactions i
+    JOIN agents src ON i.source_agent_id = src.agent_id
+    JOIN agents tgt ON i.target_agent_id = tgt.agent_id
+    WHERE i.source_agent_id = $1 -- Target agent UUID
+
+    UNION
+
+    -- Recursive Member: Follow outbound interactions from reached agents
+    SELECT 
+        i.target_agent_id AS agent_id,
+        tgt.name AS agent_name,
+        tgt.agent_type,
+        tgt.owner_team,
+        tgt.status,
+        br.depth + 1 AS depth,
+        br.path_ids || i.target_agent_id AS path_ids,
+        br.path_names || tgt.name AS path_names,
+        i.protocol AS via_protocol,
+        i.initiated_at AS interaction_time
+    FROM interactions i
+    JOIN blast_radius br ON i.source_agent_id = br.agent_id
+    JOIN agents tgt ON i.target_agent_id = tgt.agent_id
+    WHERE NOT (i.target_agent_id = ANY(br.path_ids)) -- Cycle guard
+      AND br.depth < $2 -- Max depth limit
+)
+SELECT DISTINCT ON (agent_id)
+    agent_id,
+    agent_name,
+    agent_type,
+    owner_team,
+    status,
+    depth,
+    path_names,
+    via_protocol,
+    interaction_time
+FROM blast_radius
+ORDER BY agent_id, depth ASC;
+```
+
+---
+
+## 8. Non-Recursive CTE: Team Violation Breakdown
+Defined in [db/07_advanced_queries.sql](file:///c:/Users/thiji/OneDrive/Documents/Projects/DBMS/db/07_advanced_queries.sql). Computes multi-level severity aggregation per engineering team:
+
+```sql
+WITH team_violations AS (
+    SELECT 
+        a.owner_team,
+        v.severity,
+        COUNT(v.violation_id) AS violation_count
+    FROM violations v
+    JOIN interactions i ON v.interaction_id = i.interaction_id
+    JOIN agents a ON i.source_agent_id = a.agent_id
+    GROUP BY a.owner_team, v.severity
+),
+team_summary AS (
+    SELECT 
+        owner_team,
+        COALESCE(SUM(violation_count), 0) AS total_violations,
+        COALESCE(SUM(CASE WHEN severity = 'critical' THEN violation_count ELSE 0 END), 0) AS critical_count,
+        COALESCE(SUM(CASE WHEN severity = 'high' THEN violation_count ELSE 0 END), 0) AS high_count,
+        COALESCE(SUM(CASE WHEN severity = 'medium' THEN violation_count ELSE 0 END), 0) AS medium_count,
+        COALESCE(SUM(CASE WHEN severity = 'low' THEN violation_count ELSE 0 END), 0) AS low_count
+    FROM team_violations
+    GROUP BY owner_team
+)
+SELECT 
+    ts.owner_team,
+    ts.total_violations,
+    ts.critical_count,
+    ts.high_count,
+    ts.medium_count,
+    ts.low_count,
+    ROUND((ts.critical_count::NUMERIC / NULLIF(ts.total_violations, 0)) * 100, 2) AS critical_breach_pct
+FROM team_summary ts
+ORDER BY ts.critical_count DESC, ts.total_violations DESC;
+```
+
+---
+
+## 9. Database-Level Role-Based Access Control (RBAC) & Column Security
+Defined in [db/08_roles.sql](file:///c:/Users/thiji/OneDrive/Documents/Projects/DBMS/db/08_roles.sql). Implements PostgreSQL group roles (`at_admin_role`, `at_auditor_role`) and login users (`agenttrust_app_admin`, `agenttrust_app_auditor`), with column-level `SELECT` restrictions protecting `users.password_hash` and a `SECURITY DEFINER` function for credential verification:
+
+```sql
+-- Security Definer Login Helper (auditor can authenticate without reading users.password_hash)
+CREATE OR REPLACE FUNCTION get_login_record(p_username VARCHAR)
+RETURNS TABLE (
+    user_id UUID,
+    username VARCHAR(64),
+    password_hash VARCHAR(255),
+    role VARCHAR(20)
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+    RETURN QUERY
+    SELECT u.user_id, u.username, u.password_hash, u.role
+    FROM users u
+    WHERE u.username = p_username;
+END;
+$$;
+```

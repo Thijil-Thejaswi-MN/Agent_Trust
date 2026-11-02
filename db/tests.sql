@@ -349,6 +349,95 @@ ORDER BY initiated_at DESC
 LIMIT 50;
 
 -- ----------------------------------------------------------------------------
+-- TEST 7: DATABASE-LEVEL RBAC NEGATIVE TESTS
+-- Tests that PostgreSQL kernel enforces permissions strictly for each role:
+--   1. at_auditor_role / agenttrust_app_auditor: CANNOT INSERT, UPDATE, DELETE, EXECUTE, or SELECT password_hash
+--   2. at_admin_role / agenttrust_app_admin: CANNOT DROP TABLE or ALTER TABLE
+-- ----------------------------------------------------------------------------
+SELECT 'RUNNING DATABASE-LEVEL RBAC PERMISSION VERIFICATION' AS label;
+
+DO $$
+DECLARE
+    v_auditor_ins_failed BOOLEAN := false;
+    v_auditor_upd_failed BOOLEAN := false;
+    v_auditor_del_failed BOOLEAN := false;
+    v_auditor_exec_failed BOOLEAN := false;
+    v_auditor_pw_failed BOOLEAN := false;
+    v_admin_drop_failed BOOLEAN := false;
+    v_admin_alter_failed BOOLEAN := false;
+BEGIN
+    -- 1. Test Auditor Restrictions
+    SET LOCAL ROLE agenttrust_app_auditor;
+
+    -- a. Attempt INSERT as auditor
+    BEGIN
+        INSERT INTO agents (name, agent_type, owner_team, cert_fingerprint)
+        VALUES ('Unauthorized-Auditor-Agent', 'Test', 'TestTeam', 'SHA256:AUD_FAIL');
+    EXCEPTION WHEN insufficient_privilege THEN
+        v_auditor_ins_failed := true;
+    END;
+
+    -- b. Attempt UPDATE as auditor
+    BEGIN
+        UPDATE agents SET status = 'offline' WHERE name = 'Alpha-SecOps-01';
+    EXCEPTION WHEN insufficient_privilege THEN
+        v_auditor_upd_failed := true;
+    END;
+
+    -- c. Attempt DELETE as auditor
+    BEGIN
+        DELETE FROM interactions WHERE interaction_id = 'd0000000-0000-0000-0000-000000000001';
+    EXCEPTION WHEN insufficient_privilege THEN
+        v_auditor_del_failed := true;
+    END;
+
+    -- d. Attempt direct EXECUTE compute_risk_score as auditor
+    BEGIN
+        PERFORM compute_risk_score('b0000000-0000-0000-0000-000000000001');
+    EXCEPTION WHEN insufficient_privilege THEN
+        v_auditor_exec_failed := true;
+    END;
+
+    -- e. Attempt SELECT password_hash as auditor (Column-level security check)
+    BEGIN
+        PERFORM password_hash FROM users;
+    EXCEPTION WHEN insufficient_privilege THEN
+        v_auditor_pw_failed := true;
+    END;
+
+    -- 2. Test Admin DDL Denial (app_admin is not table owner)
+    SET LOCAL ROLE agenttrust_app_admin;
+
+    -- a. Attempt DROP TABLE as app_admin
+    BEGIN
+        DROP TABLE interactions CASCADE;
+    EXCEPTION WHEN insufficient_privilege THEN
+        v_admin_drop_failed := true;
+    END;
+
+    -- b. Attempt ALTER TABLE as app_admin
+    BEGIN
+        ALTER TABLE agents ADD COLUMN malicious_tag TEXT;
+    EXCEPTION WHEN insufficient_privilege THEN
+        v_admin_alter_failed := true;
+    END;
+
+    RESET ROLE;
+
+    IF NOT (v_auditor_ins_failed AND v_auditor_upd_failed AND v_auditor_del_failed AND v_auditor_exec_failed AND v_auditor_pw_failed) THEN
+        RAISE EXCEPTION 'RBAC Audit Failed: Auditor was able to execute restricted operations! (Ins: %, Upd: %, Del: %, Exec: %, PwHash: %)',
+            v_auditor_ins_failed, v_auditor_upd_failed, v_auditor_del_failed, v_auditor_exec_failed, v_auditor_pw_failed;
+    END IF;
+
+    IF NOT (v_admin_drop_failed AND v_admin_alter_failed) THEN
+        RAISE EXCEPTION 'RBAC DDL Audit Failed: App Admin was able to perform DDL table mutations! (Drop: %, Alter: %)',
+            v_admin_drop_failed, v_admin_alter_failed;
+    END IF;
+
+    RAISE NOTICE 'RBAC Verification Passed: Auditor DML/Execute/Password-Hash and Admin DDL both rejected.';
+END $$;
+
+-- ----------------------------------------------------------------------------
 -- ROLLBACK ALL TEST DATA & SYNTHETIC BENCHMARK ROWS
 -- ----------------------------------------------------------------------------
 ROLLBACK;

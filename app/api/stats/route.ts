@@ -26,6 +26,7 @@ export async function GET(req: NextRequest) {
       avg_latency_ms: string;
       max_latency_ms: string;
     }>(
+      auth.user.role,
       `SELECT 
          protocol,
          COUNT(*) AS total_interactions,
@@ -43,6 +44,7 @@ export async function GET(req: NextRequest) {
       agent_count: string;
       avg_posture_risk: string;
     }>(
+      auth.user.role,
       `SELECT 
          a.status,
          COUNT(a.agent_id) AS agent_count,
@@ -62,6 +64,7 @@ export async function GET(req: NextRequest) {
     const uncontainedViolationsRes = await query<{
       uncontained_violations_count: string;
     }>(
+      auth.user.role,
       `SELECT COUNT(*) AS uncontained_violations_count
        FROM violations v
        JOIN interactions i ON v.interaction_id = i.interaction_id
@@ -78,6 +81,7 @@ export async function GET(req: NextRequest) {
       status: string;
       current_risk: string;
     }>(
+      auth.user.role,
       `SELECT 
          a.name,
          a.status,

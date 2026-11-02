@@ -55,7 +55,7 @@ export async function GET(req: NextRequest) {
       LIMIT 100
     `;
 
-    const result = await query(sql, params);
+    const result = await query(auth.user.role, sql, params);
     return NextResponse.json({
       events: result.rows,
       count: result.rowCount,

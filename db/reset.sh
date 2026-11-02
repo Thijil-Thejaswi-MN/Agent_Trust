@@ -3,7 +3,7 @@
 # AgentTrust: Complete Database Reset Script (Bash for Linux/WSL/macOS)
 # 1. Drops all containers and volumes.
 # 2. Recreates PostgreSQL & MongoDB containers from scratch.
-# 3. Applies SQL schema, seed, functions, triggers, views, and composite indexes.
+# 3. Applies SQL schema, seed, functions, triggers, views, composite indexes, CTEs (07), and RBAC roles (08).
 # 4. Builds MongoDB indexes, seeds polymorphic logs, and verifies consistency.
 # ============================================================================
 

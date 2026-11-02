@@ -38,7 +38,7 @@ export async function GET(req: NextRequest) {
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
     const countSql = `SELECT count(*) FROM interactions i ${whereClause};`;
-    const countRes = await query(countSql, params);
+    const countRes = await query(auth.user.role, countSql, params);
     const totalCount = parseInt(countRes.rows[0].count, 10);
 
     const dataSql = `
@@ -64,7 +64,7 @@ export async function GET(req: NextRequest) {
     `;
     params.push(limit, offset);
 
-    const dataRes = await query(dataSql, params);
+    const dataRes = await query(auth.user.role, dataSql, params);
 
     return NextResponse.json({
       interactions: dataRes.rows,

@@ -95,6 +95,7 @@ export async function GET(req: NextRequest) {
 
     // Fetch agent metadata from PostgreSQL to enrich results with agent names and current statuses
     const agentRows = await query(
+      auth.user.role,
       "SELECT agent_id, name, agent_type, owner_team, status FROM agents"
     );
     const agentMap = new Map<string, any>();

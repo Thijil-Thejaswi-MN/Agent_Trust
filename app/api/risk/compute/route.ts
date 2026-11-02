@@ -34,6 +34,7 @@ export async function POST(req: NextRequest) {
   try {
     // 1. Invoke stored procedure compute_risk_score($1)
     const execResult = await query<{ score: string }>(
+      auth.user.role,
       "SELECT compute_risk_score($1) AS score",
       [agent_id]
     );
@@ -42,11 +43,13 @@ export async function POST(req: NextRequest) {
 
     // 2. Fetch agent info and historical scores for context
     const agentResult = await query(
+      auth.user.role,
       "SELECT agent_id, name, agent_type, owner_team, status FROM agents WHERE agent_id = $1",
       [agent_id]
     );
 
     const historyResult = await query(
+      auth.user.role,
       `SELECT score_id, score_value, computed_at 
        FROM risk_scores 
        WHERE agent_id = $1 

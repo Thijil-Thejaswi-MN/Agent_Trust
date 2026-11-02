@@ -20,6 +20,13 @@ export function AgentsView() {
   // Risk computation state
   const [computingId, setComputingId] = useState<string | null>(null);
 
+  // Blast Radius Modal state
+  const [blastTarget, setBlastTarget] = useState<any | null>(null);
+  const [blastDepth, setBlastDepth] = useState<number>(3);
+  const [blastResults, setBlastResults] = useState<any | null>(null);
+  const [blastLoading, setBlastLoading] = useState(false);
+  const [blastError, setBlastError] = useState<string | null>(null);
+
   const fetchAgents = async () => {
     try {
       const params = new URLSearchParams();
@@ -54,6 +61,28 @@ export function AgentsView() {
       }
     } finally {
       setComputingId(null);
+    }
+  };
+
+  const handleOpenBlastRadius = async (agent: any, depth: number = 3) => {
+    setBlastTarget(agent);
+    setBlastDepth(depth);
+    setBlastLoading(true);
+    setBlastError(null);
+    try {
+      const res = await fetch(`/api/agents/blast-radius?agent_id=${agent.agent_id}&max_depth=${depth}`, {
+        credentials: "include",
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setBlastResults(data);
+      } else {
+        setBlastError(data.error || "Failed to compute blast radius");
+      }
+    } catch {
+      setBlastError("Network error calculating blast radius");
+    } finally {
+      setBlastLoading(false);
     }
   };
 
@@ -198,24 +227,35 @@ export function AgentsView() {
                       </code>
                     </td>
                     <td style={{ textAlign: "right" }}>
-                      <RoleGate
-                        allowedRoles={["admin"]}
-                        fallback={
-                          <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
-                            Read-Only
-                          </span>
-                        }
-                      >
+                      <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.5rem", alignItems: "center" }}>
                         <button
+                          id={`btn-blast-radius-${agent.agent_id}`}
                           className="btn btn-secondary"
-                          style={{ padding: "0.35rem 0.75rem", fontSize: "0.75rem" }}
-                          disabled={computingId === agent.agent_id}
-                          onClick={() => handleComputeRisk(agent.agent_id)}
-                          title="Invokes compute_risk_score stored function"
+                          style={{ padding: "0.35rem 0.65rem", fontSize: "0.75rem", borderColor: "var(--accent-cyan)", color: "var(--accent-cyan)" }}
+                          onClick={() => handleOpenBlastRadius(agent, blastDepth)}
+                          title="Trace downstream interaction blast radius via Recursive CTE"
                         >
-                          {computingId === agent.agent_id ? "Computing..." : "Recompute Risk"}
+                          Blast Radius
                         </button>
-                      </RoleGate>
+                        <RoleGate
+                          allowedRoles={["admin"]}
+                          fallback={
+                            <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                              Read-Only
+                            </span>
+                          }
+                        >
+                          <button
+                            className="btn btn-secondary"
+                            style={{ padding: "0.35rem 0.75rem", fontSize: "0.75rem" }}
+                            disabled={computingId === agent.agent_id}
+                            onClick={() => handleComputeRisk(agent.agent_id)}
+                            title="Invokes compute_risk_score stored function"
+                          >
+                            {computingId === agent.agent_id ? "Computing..." : "Recompute Risk"}
+                          </button>
+                        </RoleGate>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -224,6 +264,91 @@ export function AgentsView() {
           </table>
         </div>
       </div>
+
+      {/* Blast Radius Recursive CTE Modal */}
+      {blastTarget && (
+        <div className="modal-overlay">
+          <div className="modal-content glass-panel" style={{ maxWidth: "800px", width: "95%" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                <span style={{ fontSize: "1.25rem" }}>💥</span>
+                <h3 style={{ fontSize: "1.25rem" }}>Agent Interaction Blast Radius</h3>
+              </div>
+              <button className="btn btn-secondary" style={{ padding: "0.25rem 0.5rem" }} onClick={() => setBlastTarget(null)}>✕</button>
+            </div>
+            <p style={{ color: "var(--text-secondary)", fontSize: "0.85rem", marginBottom: "1rem" }}>
+              Evaluates downstream dependency risk for <strong style={{ color: "var(--accent-cyan)" }}>{blastTarget.name}</strong> using PostgreSQL <code className="mono">WITH RECURSIVE</code> traversal with cycle prevention.
+            </p>
+
+            <div style={{ display: "flex", alignItems: "center", gap: "1rem", marginBottom: "1.25rem", background: "rgba(255,255,255,0.02)", padding: "0.75rem", borderRadius: "8px", border: "1px solid var(--border-color)", flexWrap: "wrap" }}>
+              <label style={{ fontSize: "0.85rem", color: "var(--text-secondary)" }}>Max Traversal Depth:</label>
+              <div style={{ display: "flex", gap: "0.35rem" }}>
+                {[1, 2, 3, 4, 5].map((d) => (
+                  <button
+                    key={d}
+                    className={`btn ${blastDepth === d ? "btn-primary" : "btn-secondary"}`}
+                    style={{ padding: "0.25rem 0.65rem", fontSize: "0.8rem" }}
+                    onClick={() => handleOpenBlastRadius(blastTarget, d)}
+                  >
+                    {d} {d === 1 ? "Hop" : "Hops"}
+                  </button>
+                ))}
+              </div>
+              {blastResults && (
+                <span style={{ marginLeft: "auto", fontSize: "0.85rem", color: "var(--accent-amber)" }}>
+                  Reachable Nodes: <strong>{blastResults.blast_radius_count}</strong>
+                </span>
+              )}
+            </div>
+
+            {blastLoading && <div style={{ textAlign: "center", padding: "2rem", color: "var(--accent-cyan)" }}>Executing recursive query...</div>}
+            {blastError && <div style={{ color: "var(--accent-rose)", padding: "0.75rem", background: "rgba(244,63,94,0.1)", borderRadius: "6px" }}>{blastError}</div>}
+
+            {blastResults && !blastLoading && (
+              <div className="table-container" style={{ maxHeight: "360px", overflowY: "auto" }}>
+                {blastResults.reachable_agents.length === 0 ? (
+                  <div style={{ textAlign: "center", padding: "2rem", color: "var(--text-muted)" }}>
+                    No downstream agents reachable within {blastDepth} hops.
+                  </div>
+                ) : (
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Hop Depth</th>
+                        <th>Target Agent</th>
+                        <th>Type / Team</th>
+                        <th>Status</th>
+                        <th>Traversal Path (Cycle-Guarded)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {blastResults.reachable_agents.map((row: any, idx: number) => (
+                        <tr key={idx}>
+                          <td>
+                            <span className="badge" style={{ background: row.depth === 1 ? "rgba(0,229,255,0.15)" : "rgba(168,85,247,0.15)", color: row.depth === 1 ? "var(--accent-cyan)" : "var(--accent-purple)" }}>
+                              Depth {row.depth}
+                            </span>
+                          </td>
+                          <td style={{ fontWeight: 600 }}>{row.agent_name}</td>
+                          <td style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>{row.agent_type} · {row.owner_team}</td>
+                          <td>
+                            <span className={`status-badge ${row.status}`}>{row.status}</span>
+                          </td>
+                          <td>
+                            <div style={{ fontSize: "0.75rem", fontFamily: "var(--font-mono)", color: "var(--text-secondary)" }}>
+                              {row.path_names.join(" ➔ ")}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Registration Modal */}
       {showModal && (

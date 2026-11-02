@@ -71,7 +71,7 @@ export async function GET(req: NextRequest) {
       ORDER BY detected_at DESC;
     `;
 
-    const result = await query(sql, params);
+    const result = await query(auth.user.role, sql, params);
     return NextResponse.json({ violations: result.rows, count: result.rowCount });
   } catch (err: any) {
     console.error("Violations GET error:", err);

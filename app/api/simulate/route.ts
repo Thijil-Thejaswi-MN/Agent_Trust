@@ -38,11 +38,12 @@ export async function POST(req: NextRequest) {
 
     if (!sourceId || !targetId) {
       const agentsRes = await query(
+        auth.user.role,
         "SELECT agent_id, name, status FROM agents WHERE status = 'active' ORDER BY registered_at ASC LIMIT 5;"
       );
       if ((agentsRes.rowCount ?? 0) < 2) {
         // Fallback to any two distinct agents
-        const allAgents = await query("SELECT agent_id, name FROM agents LIMIT 2;");
+        const allAgents = await query(auth.user.role, "SELECT agent_id, name FROM agents LIMIT 2;");
         if ((allAgents.rowCount ?? 0) < 2) {
           return NextResponse.json(
             { error: "Insufficient agents registered to simulate an interaction." },
@@ -102,7 +103,7 @@ export async function POST(req: NextRequest) {
       RETURNING *;
     `;
 
-    const pgResult = await query(interactionSql, [
+    const pgResult = await query(auth.user.role, interactionSql, [
       sourceId,
       targetId,
       protocol,
@@ -116,6 +117,7 @@ export async function POST(req: NextRequest) {
 
     // Inspect if trigger wrote any violations for this interaction
     const violationsResult = await query(
+      auth.user.role,
       `SELECT v.violation_id, v.severity, v.description, v.detected_at, p.name AS policy_name
        FROM violations v
        JOIN policies p ON v.policy_id = p.policy_id
@@ -125,6 +127,7 @@ export async function POST(req: NextRequest) {
 
     // Inspect updated status of source agent
     const agentStatusResult = await query(
+      auth.user.role,
       "SELECT agent_id, name, status FROM agents WHERE agent_id = $1",
       [sourceId]
     );

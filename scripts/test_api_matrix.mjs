@@ -46,6 +46,7 @@ async function runTests() {
     "/api/quarantine",
     "/api/logs",
     "/api/logs/anomalies",
+    "/api/agents/blast-radius?agent_id=b0000000-0000-0000-0000-000000000001",
     "/api/stats"
   ];
 
@@ -310,6 +311,23 @@ async function runTests() {
     }
   }
   assert("Consecutive failed logins per username trigger HTTP 429 (no spoofed headers)", rateLimited);
+
+  // ----------------------------------------------------------------------------
+  // SECTION 8.5: Recursive CTE Blast Radius Endpoint Verification
+  // ----------------------------------------------------------------------------
+  console.log("\n--- SECTION 8.5: Recursive CTE Blast Radius ---");
+  const blastResAdmin = await fetch(`${BASE_URL}/api/agents/blast-radius?agent_id=b0000000-0000-0000-0000-000000000001&max_depth=3`, {
+    headers: { Cookie: adminCookie }
+  });
+  assert("Admin GET /api/agents/blast-radius returns 200", blastResAdmin.status === 200);
+  const blastDataAdmin = await blastResAdmin.json();
+  assert("Blast radius returns reachable agents array", Array.isArray(blastDataAdmin.reachable_agents));
+  assert("Blast radius returns max_depth 3", blastDataAdmin.max_depth === 3);
+
+  const blastResAuditor = await fetch(`${BASE_URL}/api/agents/blast-radius?agent_id=b0000000-0000-0000-0000-000000000001&max_depth=3`, {
+    headers: { Cookie: auditorCookie }
+  });
+  assert("Auditor GET /api/agents/blast-radius returns 200 (Read Allowed)", blastResAuditor.status === 200);
 
   // ----------------------------------------------------------------------------
   // SECTION 9: Database Baseline Restoration

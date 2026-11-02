@@ -19,6 +19,8 @@ services:
       - ./db/04_triggers.sql:/docker-entrypoint-initdb.d/04_triggers.sql:ro
       - ./db/05_views.sql:/docker-entrypoint-initdb.d/05_views.sql:ro
       - ./db/06_indexes.sql:/docker-entrypoint-initdb.d/06_indexes.sql:ro
+      - ./db/07_advanced_queries.sql:/docker-entrypoint-initdb.d/07_advanced_queries.sql:ro
+      - ./db/08_roles.sql:/docker-entrypoint-initdb.d/08_roles.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
