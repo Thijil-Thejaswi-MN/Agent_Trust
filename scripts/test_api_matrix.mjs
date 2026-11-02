@@ -46,6 +46,7 @@ async function runTests() {
     "/api/quarantine",
     "/api/logs",
     "/api/logs/anomalies",
+    "/api/logs/annotations",
     "/api/agents/blast-radius?agent_id=b0000000-0000-0000-0000-000000000001",
     "/api/stats"
   ];
@@ -54,6 +55,13 @@ async function runTests() {
     const res = await fetch(`${BASE_URL}${ep}`);
     assert(`Unauthenticated GET ${ep} returns 401`, res.status === 401, `Status: ${res.status}`);
   }
+
+  const unauthReviewRes = await fetch(`${BASE_URL}/api/logs/review`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ interaction_id: "test", status: "approved" })
+  });
+  assert("Unauthenticated PATCH /api/logs/review returns 401", unauthReviewRes.status === 401, `Status: ${unauthReviewRes.status}`);
 
   // ----------------------------------------------------------------------------
   // SECTION 2: Authentication & Cookie-Only Issuance
@@ -292,6 +300,108 @@ async function runTests() {
   assert("Auditor can run MongoDB anomaly aggregation (200 OK)", anomalyRes.status === 200 && Array.isArray(anomalyData.anomalies));
   const topAnomaly = anomalyData.anomalies[0];
   assert("Top anomalous agent correctly detected as 'Theta-Threat-Scanner' (score: 150)", topAnomaly?.agent_name === "Theta-Threat-Scanner" && topAnomaly?.computed_anomaly_score === 150, `Agent: ${topAnomaly?.agent_name}, Score: ${topAnomaly?.computed_anomaly_score}`);
+
+  // ----------------------------------------------------------------------------
+  // SECTION 7.5: MongoDB RUD & Schema Validation (NoSQL Feature)
+  // ----------------------------------------------------------------------------
+  console.log("\n--- SECTION 7.5: MongoDB RUD & Schema Validation ---");
+  const sampleInteractionId = logsData.logs[0].interaction_id;
+
+  // A. PATCH /api/logs/review RBAC
+  const reviewAuditorRes = await fetch(`${BASE_URL}/api/logs/review`, {
+    method: "PATCH",
+    headers: { Cookie: auditorCookie, "Content-Type": "application/json" },
+    body: JSON.stringify({ interaction_id: sampleInteractionId, status: "flagged", note: "Auditor attempted review" })
+  });
+  assert("Auditor PATCH /api/logs/review is 403 Forbidden", reviewAuditorRes.status === 403, `Status: ${reviewAuditorRes.status}`);
+
+  const reviewAdminRes = await fetch(`${BASE_URL}/api/logs/review`, {
+    method: "PATCH",
+    headers: { Cookie: adminCookie, "Content-Type": "application/json" },
+    body: JSON.stringify({ interaction_id: sampleInteractionId, status: "flagged", note: "Admin compliance review" })
+  });
+  const reviewAdminData = await reviewAdminRes.json();
+  assert("Admin PATCH /api/logs/review succeeds (200 OK)", reviewAdminRes.status === 200 && reviewAdminData.success);
+  assert("Admin review response contains status and reviewer", reviewAdminData.review?.status === "flagged" && reviewAdminData.review?.reviewed_by === "admin");
+
+  // B. MongoDB Schema Validation ($jsonSchema) Rejection Test
+  const mongoClientMod = await import("mongodb");
+  const mongoClient = new mongoClientMod.MongoClient(process.env.MONGODB_URI || "mongodb://agenttrust_mongo:your_secure_mongo_password_here@localhost:27017/agenttrust?authSource=admin");
+  await mongoClient.connect();
+  const mongoDb = mongoClient.db(process.env.MONGO_DB || "agenttrust");
+  let schemaRejected = false;
+  try {
+    // Intentionally invalid: note is empty string violating minLength: 1
+    await mongoDb.collection("log_annotations").insertOne({
+      annotation_id: "invalid-001",
+      interaction_id: sampleInteractionId,
+      author: "tester",
+      note: "", // Fails validator minLength 1
+      created_at: new Date()
+    });
+  } catch (err) {
+    schemaRejected = err.message.includes("Document failed validation");
+  }
+  assert("MongoDB $jsonSchema validator rejects invalid document (empty note)", schemaRejected);
+
+  // C. CRUD /api/logs/annotations RBAC & Functionality
+  // 1. Create (POST)
+  const annoCreateAuditorRes = await fetch(`${BASE_URL}/api/logs/annotations`, {
+    method: "POST",
+    headers: { Cookie: auditorCookie, "Content-Type": "application/json" },
+    body: JSON.stringify({ interaction_id: sampleInteractionId, note: "Auditor annotation" })
+  });
+  assert("Auditor POST /api/logs/annotations is 403 Forbidden", annoCreateAuditorRes.status === 403, `Status: ${annoCreateAuditorRes.status}`);
+
+  const annoCreateAdminRes = await fetch(`${BASE_URL}/api/logs/annotations`, {
+    method: "POST",
+    headers: { Cookie: adminCookie, "Content-Type": "application/json" },
+    body: JSON.stringify({ interaction_id: sampleInteractionId, note: "Initial audit observation" })
+  });
+  const annoCreated = await annoCreateAdminRes.json();
+  assert("Admin POST /api/logs/annotations succeeds (201 Created)", annoCreateAdminRes.status === 201 && !!annoCreated.annotation?.annotation_id);
+  const testAnnoId = annoCreated.annotation?.annotation_id;
+
+  // 2. Read (GET)
+  const annoReadAuditorRes = await fetch(`${BASE_URL}/api/logs/annotations?interaction_id=${sampleInteractionId}`, {
+    headers: { Cookie: auditorCookie }
+  });
+  const annoReadData = await annoReadAuditorRes.json();
+  assert("Auditor GET /api/logs/annotations succeeds (200 OK)", annoReadAuditorRes.status === 200 && Array.isArray(annoReadData.annotations));
+  assert("Auditor can see created annotation", annoReadData.annotations.some((a) => a.annotation_id === testAnnoId));
+
+  // 3. Update (PATCH)
+  const annoUpdateAuditorRes = await fetch(`${BASE_URL}/api/logs/annotations`, {
+    method: "PATCH",
+    headers: { Cookie: auditorCookie, "Content-Type": "application/json" },
+    body: JSON.stringify({ annotation_id: testAnnoId, note: "Auditor tried edit" })
+  });
+  assert("Auditor PATCH /api/logs/annotations is 403 Forbidden", annoUpdateAuditorRes.status === 403, `Status: ${annoUpdateAuditorRes.status}`);
+
+  const annoUpdateAdminRes = await fetch(`${BASE_URL}/api/logs/annotations`, {
+    method: "PATCH",
+    headers: { Cookie: adminCookie, "Content-Type": "application/json" },
+    body: JSON.stringify({ annotation_id: testAnnoId, note: "Updated audit observation: resolved" })
+  });
+  assert("Admin PATCH /api/logs/annotations succeeds (200 OK)", annoUpdateAdminRes.status === 200);
+
+  // 4. Delete (DELETE)
+  const annoDeleteAuditorRes = await fetch(`${BASE_URL}/api/logs/annotations?annotation_id=${testAnnoId}`, {
+    method: "DELETE",
+    headers: { Cookie: auditorCookie }
+  });
+  assert("Auditor DELETE /api/logs/annotations is 403 Forbidden", annoDeleteAuditorRes.status === 403, `Status: ${annoDeleteAuditorRes.status}`);
+
+  const annoDeleteAdminRes = await fetch(`${BASE_URL}/api/logs/annotations?annotation_id=${testAnnoId}`, {
+    method: "DELETE",
+    headers: { Cookie: adminCookie }
+  });
+  assert("Admin DELETE /api/logs/annotations succeeds (200 OK)", annoDeleteAdminRes.status === 200);
+
+  // Clean up any test review on interaction_logs and test annotations from mongo
+  await mongoDb.collection("log_annotations").deleteMany({ interaction_id: sampleInteractionId });
+  await mongoDb.collection("interaction_logs").updateOne({ interaction_id: sampleInteractionId }, { $unset: { review: "" } });
+  await mongoClient.close();
 
   // ----------------------------------------------------------------------------
   // SECTION 8: Rate Limiting Defense (Per-Username Brute Force Protection)
