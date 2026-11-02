@@ -53,7 +53,8 @@ CREATE TABLE policies (
     name VARCHAR(100) UNIQUE NOT NULL,
     rule_type VARCHAR(50) NOT NULL,
     threshold NUMERIC(10, 2) NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT check_policy_threshold_positive CHECK (threshold > 0)
 );
 
 -- ----------------------------------------------------------------------------
@@ -73,6 +74,7 @@ CREATE TABLE interactions (
     initiated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     completed_at TIMESTAMPTZ,
     CONSTRAINT check_no_self_interaction CHECK (source_agent_id <> target_agent_id),
+    CONSTRAINT check_interaction_status CHECK (status IN ('completed', 'failed', 'success')),
     CONSTRAINT check_latency_non_negative CHECK (
         (latency_d2d IS NULL OR latency_d2d >= 0.0) AND
         (latency_d2b IS NULL OR latency_d2b >= 0.0) AND

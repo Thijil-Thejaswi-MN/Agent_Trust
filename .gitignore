@@ -35,3 +35,11 @@ yarn-error.log*
 *.sw?
 .DS_Store
 Thumbs.db
+
+# TypeScript build info
+tsconfig.tsbuildinfo
+
+# Course reference documents
+DBMS-Project-Template.docx
+DBMS Level 3 (1).pdf
+

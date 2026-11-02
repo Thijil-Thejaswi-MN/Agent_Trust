@@ -270,6 +270,24 @@ BEGIN
     EXCEPTION WHEN check_violation THEN
         RAISE NOTICE 'Negative Test 5 PASSED: Score 150.00 rejected by risk_scores_score_value_check';
     END;
+
+    -- Negative Test 6: Invalid interaction status (CHECK check_interaction_status)
+    BEGIN
+        INSERT INTO interactions (source_agent_id, target_agent_id, protocol, status, latency_d2d)
+        VALUES ('b0000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000002', 'gRPC/v2', 'corrupted_status', 50.0);
+        RAISE EXCEPTION 'Negative Test 6 FAILED: Invalid interaction status was accepted';
+    EXCEPTION WHEN check_violation THEN
+        RAISE NOTICE 'Negative Test 6 PASSED: Invalid status rejected by check_interaction_status';
+    END;
+
+    -- Negative Test 7: Non-positive policy threshold (CHECK check_policy_threshold_positive)
+    BEGIN
+        INSERT INTO policies (name, rule_type, threshold)
+        VALUES ('Zero-Threshold-Policy', 'latency_d2d', 0.0);
+        RAISE EXCEPTION 'Negative Test 7 FAILED: Threshold = 0 was accepted';
+    EXCEPTION WHEN check_violation THEN
+        RAISE NOTICE 'Negative Test 7 PASSED: Non-positive threshold rejected by check_policy_threshold_positive';
+    END;
 END $$;
 
 -- ----------------------------------------------------------------------------

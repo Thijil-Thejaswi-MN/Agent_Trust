@@ -120,7 +120,7 @@ erDiagram
 | `source_agent_id` | `UUID` | `NOT NULL, REFERENCES agents(agent_id) ON DELETE CASCADE` | Sender agent initiating call. |
 | `target_agent_id` | `UUID` | `NOT NULL, REFERENCES agents(agent_id) ON DELETE CASCADE` | Recipient agent processing call. |
 | `protocol` | `VARCHAR(50)` | `NOT NULL` | Communication protocol (`A2A/2.0-Secure`, `A2A/1.9-gRPC`, `A2A/1.0-Legacy-Unencrypted`). |
-| `status` | `VARCHAR(20)` | `NOT NULL, CHECK (status IN ('success', 'failed'))` | Interaction outcome. |
+| `status` | `VARCHAR(30)` | `NOT NULL, DEFAULT 'completed', CHECK (status IN ('completed', 'failed', 'success'))` | Interaction outcome. |
 | `latency_d2d` | `NUMERIC(10, 2)` | `CHECK (latency_d2d >= 0.0)` | Device-to-device network latency (ms). |
 | `latency_d2b` | `NUMERIC(10, 2)` | `CHECK (latency_d2b >= 0.0)` | Device-to-broker telemetry latency (ms). |
 | `latency_d2rev` | `NUMERIC(10, 2)` | `CHECK (latency_d2rev >= 0.0)` | Device-to-reviewer review latency (ms). |

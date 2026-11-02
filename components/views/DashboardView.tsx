@@ -115,7 +115,7 @@ export function DashboardView() {
             {loading ? "..." : criticalViolations}
           </div>
           <div style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
-            Automatic trigger trigger cascade
+            Automatic trigger cascade
           </div>
         </div>
       </div>
